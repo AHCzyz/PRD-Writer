@@ -265,6 +265,22 @@ export function CellEditor({
           return false;
         },
         handleDOMEvents: {
+          keydown: (_view, event: Event) => {
+            const keyboardEvent = event as KeyboardEvent;
+            if (keyboardEvent.key !== 'Enter') {
+              return false;
+            }
+
+            if (editingRef.current && keyboardEvent.shiftKey) {
+              return false;
+            }
+
+            keyboardEvent.preventDefault();
+            keyboardEvent.stopPropagation();
+            handleCommit({ keepEditing: true, force: true });
+            handlersRef.current.onArrowDown();
+            return true;
+          },
           blur: (_view, event: FocusEvent) => {
             if (!editingRef.current) {
               return false;

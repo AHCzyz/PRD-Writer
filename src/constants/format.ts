@@ -48,6 +48,7 @@ export const MAX_FONT_SIZE = 32;
 /** 默认行数/列数 */
 export const DEFAULT_ROW_COUNT = 50;
 export const DEFAULT_COL_COUNT = 10;
+export const GRID_EXPAND_BATCH = 20;
 
 /** 防抖时间 (ms) */
 export const DEBOUNCE_EDIT = 300;

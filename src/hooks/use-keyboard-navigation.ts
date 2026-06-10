@@ -7,10 +7,10 @@
 import { useCallback, useEffect } from 'react';
 import { useEditorStore } from '../store/editor-store';
 import { commitActiveCellEditor, hasActiveCellEditorChanges } from '../components/cell/CellEditor';
+import { GRID_EXPAND_BATCH } from '../constants/format';
 
 export function useKeyboardNavigation() {
   const indentRow = useEditorStore((s) => s.indentRow);
-  const addColumn = useEditorStore((s) => s.addColumn);
 
   // 使用 getState() 避免闭包问题 — handler 始终读取最新 focus
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
@@ -31,6 +31,8 @@ export function useKeyboardNavigation() {
       cutSelection,
       pasteClipboard,
       deleteRow,
+      insertRowsAt,
+      insertColumnsAt,
     } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
@@ -100,7 +102,7 @@ export function useKeyboardNavigation() {
             if (row < rows.length - 1) {
               setFocus({ row: row + 1, col: 0, editing: false });
             } else {
-              addColumn(row);
+              insertColumnsAt(totalCols, GRID_EXPAND_BATCH);
               setFocus({ row, col: totalCols, editing: false });
             }
           }
@@ -119,6 +121,9 @@ export function useKeyboardNavigation() {
             const targetCols = rows[targetRow].cells.length;
             setFocus({ row: targetRow, col: Math.min(col, targetCols - 1), editing: false });
           }
+        } else {
+          insertRowsAt(rows.length, GRID_EXPAND_BATCH);
+          setFocus({ row: row + 1, col, editing: false });
         }
         break;
       }
@@ -147,6 +152,9 @@ export function useKeyboardNavigation() {
             const targetCols = rows[targetRow].cells.length;
             setFocus({ row: targetRow, col: Math.min(col, targetCols - 1), editing: false });
           }
+        } else {
+          insertRowsAt(rows.length, GRID_EXPAND_BATCH);
+          setFocus({ row: row + 1, col, editing: false });
         }
         break;
       }
@@ -164,6 +172,11 @@ export function useKeyboardNavigation() {
         if (col < totalCols - 1) {
           e.preventDefault();
           commitActiveCellEditor({ keepEditing: true, force: true });
+          setFocus({ row, col: col + 1, editing: false });
+        } else {
+          e.preventDefault();
+          commitActiveCellEditor({ keepEditing: true, force: true });
+          insertColumnsAt(totalCols, GRID_EXPAND_BATCH);
           setFocus({ row, col: col + 1, editing: false });
         }
         break;
@@ -206,7 +219,7 @@ export function useKeyboardNavigation() {
         break;
       }
     }
-  }, [indentRow, addColumn]);
+  }, [indentRow]);
 
   useEffect(() => {
     const el = document.querySelector('.grid-container');

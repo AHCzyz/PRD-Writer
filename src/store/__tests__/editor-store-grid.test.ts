@@ -83,4 +83,24 @@ describe('editor store grid operations', () => {
     expect(textAt(0, 0)).toBe('A');
     expect(textAt(1, 0)).toBe('D');
   });
+
+  it('inserts the requested number of rows and columns', () => {
+    const store = useEditorStore.getState();
+    const initialRows = store.document.rows.length;
+    const initialColumns = columnCount();
+
+    store.insertRowsAt(1, 3);
+
+    expect(useEditorStore.getState().document.rows).toHaveLength(initialRows + 3);
+    expect(textAt(1, 0)).toBe('');
+    expect(textAt(4, 0)).toBe('D');
+
+    store.insertColumnsAt(1, 2);
+
+    expect(columnCount()).toBe(initialColumns + 2);
+    expect(textAt(0, 0)).toBe('A');
+    expect(textAt(0, 1)).toBe('');
+    expect(textAt(0, 2)).toBe('');
+    expect(textAt(0, 3)).toBe('B');
+  });
 });

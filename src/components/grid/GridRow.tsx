@@ -14,7 +14,8 @@ interface GridRowProps {
   onCellMouseEnter: (rowIdx: number, colIdx: number) => void;
   isCellSelected: (row: number, col: number) => boolean;
   isRowSelected: boolean;
-  onRowHeaderClick: (rowIdx: number) => void;
+  onRowHeaderMouseDown: (rowIdx: number, e: React.MouseEvent) => void;
+  onRowHeaderMouseEnter: (rowIdx: number) => void;
 }
 
 export default function GridRow({
@@ -24,7 +25,8 @@ export default function GridRow({
   onCellMouseEnter,
   isCellSelected,
   isRowSelected,
-  onRowHeaderClick,
+  onRowHeaderMouseDown,
+  onRowHeaderMouseEnter,
 }: GridRowProps) {
   const columnWidths = useEditorStore((s) => s.columnWidths);
   const focus = useEditorStore((s) => s.focus);
@@ -37,7 +39,8 @@ export default function GridRow({
         <td
           className={`row-header-cell ${isRowSelected ? 'header-active' : ''}`}
           data-row-header={rowIndex}
-          onClick={() => onRowHeaderClick(rowIndex)}
+          onMouseDown={(e) => onRowHeaderMouseDown(rowIndex, e)}
+          onMouseEnter={() => onRowHeaderMouseEnter(rowIndex)}
         >
           <span className="row-header-label">{rowIndex + 1}</span>
         </td>
@@ -45,6 +48,8 @@ export default function GridRow({
           <td
             key={colIdx}
             className={`grid-cell`}
+            data-row={rowIndex}
+            data-col={colIdx}
             onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
             onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
           >
@@ -63,7 +68,8 @@ export default function GridRow({
       <td
         className={`row-header-cell ${isRowSelected ? 'header-active' : ''}`}
         data-row-header={rowIndex}
-        onClick={() => onRowHeaderClick(rowIndex)}
+        onMouseDown={(e) => onRowHeaderMouseDown(rowIndex, e)}
+        onMouseEnter={() => onRowHeaderMouseEnter(rowIndex)}
       >
         <span className="row-header-label">{rowIndex + 1}</span>
       </td>
@@ -75,6 +81,8 @@ export default function GridRow({
           <td
             key={colIdx}
             className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+            data-row={rowIndex}
+            data-col={colIdx}
             style={{
               paddingLeft: colIdx === 0 ? indentPx + 4 : 4,
             }}
@@ -95,6 +103,8 @@ export default function GridRow({
             <td
               key={`empty-${colIdx}`}
               className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+              data-row={rowIndex}
+              data-col={colIdx}
               onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
               onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
             >

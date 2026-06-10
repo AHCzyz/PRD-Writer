@@ -9,6 +9,7 @@ import type { TabMLCell } from '../../types/tabml';
 import { useEditorStore } from '../../store/editor-store';
 import CellRenderer from './CellRenderer';
 import { CellEditor, commitActiveCellEditor } from './CellEditor';
+import { GRID_EXPAND_BATCH } from '../../constants/format';
 
 interface CellProps {
   cell: TabMLCell;
@@ -22,7 +23,6 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
   const updateCell = useEditorStore((s) => s.updateCell);
   const doc = useEditorStore((s) => s.document);
   const indentRow = useEditorStore((s) => s.indentRow);
-  const addColumn = useEditorStore((s) => s.addColumn);
 
   const isEditing = focus.row === rowIndex && focus.col === colIndex && focus.editing;
   const isFocused = focus.row === rowIndex && focus.col === colIndex;
@@ -99,11 +99,11 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
       if (rowIndex < doc.rows.length - 1) {
         setFocus({ row: rowIndex + 1, col: 0, editing: true });
       } else {
-        addColumn(rowIndex);
+        useEditorStore.getState().insertColumnsAt(totalCols, GRID_EXPAND_BATCH);
         setFocus({ row: rowIndex, col: totalCols, editing: true });
       }
     }
-  }, [rowIndex, colIndex, doc, setFocus, indentRow, addColumn]);
+  }, [rowIndex, colIndex, doc, setFocus, indentRow]);
 
   const handleTabPrev = useCallback(() => {
     if (colIndex > 0) {
@@ -133,6 +133,9 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
         const targetCols = doc.rows[target].cells.length;
         setFocus({ row: target, col: Math.min(colIndex, targetCols - 1), editing: false });
       }
+    } else {
+      useEditorStore.getState().insertRowsAt(doc.rows.length, GRID_EXPAND_BATCH);
+      setFocus({ row: rowIndex + 1, col: colIndex, editing: false });
     }
   }, [rowIndex, colIndex, doc, setFocus]);
 

@@ -13,6 +13,7 @@ import {
   hasActiveCellEditorTextSelection,
 } from '../cell/CellEditor';
 import {
+  GRID_EXPAND_BATCH,
   MIN_COLUMN_WIDTH,
   MAX_COLUMN_WIDTH,
 } from '../../constants/format';
@@ -28,6 +29,8 @@ interface ContextMenuState {
   maxCol: number;
   textSelection: boolean;
 }
+
+type SubmenuKey = 'rows' | 'columns' | 'format';
 
 function colLabel(idx: number): string {
   let s = '';
@@ -47,7 +50,6 @@ export default function Grid() {
   const showGridLines = useEditorStore((s) => s.showGridLines);
   const focus = useEditorStore((s) => s.focus);
   const setFocus = useEditorStore((s) => s.setFocus);
-  const insertRow = useEditorStore((s) => s.insertRow);
   const fontSize = useEditorStore((s) => s.fontSize);
   const selectionRange = useEditorStore((s) => s.selectionRange);
   const selectAll = useEditorStore((s) => s.selectAll);
@@ -57,9 +59,13 @@ export default function Grid() {
   const tableRef = useRef<HTMLTableElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [insertRowCountInput, setInsertRowCountInput] = useState('1');
+  const [insertColCountInput, setInsertColCountInput] = useState('1');
+  const [openSubmenu, setOpenSubmenu] = useState<SubmenuKey | null>(null);
 
   const dragRef = useRef<{
     dragging: boolean;
+    mode: 'cells' | 'rows' | 'columns';
     startRow: number;
     startCol: number;
   } | null>(null);
@@ -86,7 +92,7 @@ export default function Grid() {
         commitActiveCellEditor({ keepEditing: true, force: true });
       }
 
-      dragRef.current = { dragging: true, startRow: rowIdx, startCol: colIdx };
+      dragRef.current = { dragging: true, mode: 'cells', startRow: rowIdx, startCol: colIdx };
       state.setSelectionRange({
         startRow: rowIdx,
         startCol: colIdx,
@@ -99,7 +105,7 @@ export default function Grid() {
   );
 
   const handleCellMouseEnter = useCallback((rowIdx: number, colIdx: number) => {
-    if (!dragRef.current?.dragging) return;
+    if (!dragRef.current?.dragging || dragRef.current.mode !== 'cells') return;
     useEditorStore.getState().setSelectionRange({
       startRow: dragRef.current.startRow,
       startCol: dragRef.current.startCol,
@@ -142,14 +148,62 @@ export default function Grid() {
     [columnWidths]
   );
 
-  const handleRowHeaderClick = useCallback((rowIdx: number) => {
+  const handleRowHeaderMouseDown = useCallback((rowIdx: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     setContextMenu(null);
-    useEditorStore.getState().selectRow(rowIdx);
+    commitActiveCellEditor({ keepEditing: true, force: true });
+
+    const state = useEditorStore.getState();
+    const maxCol = getMaxCol(state.document, state.columnWidths);
+    dragRef.current = { dragging: true, mode: 'rows', startRow: rowIdx, startCol: 0 };
+    state.setSelectionRange({
+      startRow: rowIdx,
+      startCol: 0,
+      endRow: rowIdx,
+      endCol: maxCol,
+    });
+    state.setFocus({ row: rowIdx, col: 0, editing: false });
   }, []);
 
-  const handleColHeaderClick = useCallback((colIdx: number) => {
+  const handleRowHeaderMouseEnter = useCallback((rowIdx: number) => {
+    if (!dragRef.current?.dragging || dragRef.current.mode !== 'rows') return;
+    const state = useEditorStore.getState();
+    const maxCol = getMaxCol(state.document, state.columnWidths);
+    state.setSelectionRange({
+      startRow: dragRef.current.startRow,
+      startCol: 0,
+      endRow: rowIdx,
+      endCol: maxCol,
+    });
+  }, []);
+
+  const handleColHeaderMouseDown = useCallback((colIdx: number, e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
     setContextMenu(null);
-    useEditorStore.getState().selectColumn(colIdx);
+    commitActiveCellEditor({ keepEditing: true, force: true });
+
+    const state = useEditorStore.getState();
+    dragRef.current = { dragging: true, mode: 'columns', startRow: 0, startCol: colIdx };
+    state.setSelectionRange({
+      startRow: 0,
+      startCol: colIdx,
+      endRow: Math.max(0, state.document.rows.length - 1),
+      endCol: colIdx,
+    });
+    state.setFocus({ row: 0, col: colIdx, editing: false });
+  }, []);
+
+  const handleColHeaderMouseEnter = useCallback((colIdx: number) => {
+    if (!dragRef.current?.dragging || dragRef.current.mode !== 'columns') return;
+    const state = useEditorStore.getState();
+    state.setSelectionRange({
+      startRow: 0,
+      startCol: dragRef.current.startCol,
+      endRow: Math.max(0, state.document.rows.length - 1),
+      endCol: colIdx,
+    });
   }, []);
 
   const handleCornerClick = useCallback(() => {
@@ -182,6 +236,8 @@ export default function Grid() {
 
   const handleGridClick = useCallback(
     (e: React.MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.context-menu')) return;
       setContextMenu(null);
       if (e.target === gridRef.current || e.target === tableRef.current) {
         const { focus: f } = useEditorStore.getState();
@@ -193,8 +249,13 @@ export default function Grid() {
   );
 
   const handleGridContextMenu = useCallback((e: React.MouseEvent) => {
+    const gridEl = gridRef.current;
     const target = e.target as HTMLElement;
     if (target.closest('.floating-toolbar')) return;
+    if (gridEl?.contains(target)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
 
     const state = useEditorStore.getState();
     let row = state.focus.row;
@@ -202,12 +263,15 @@ export default function Grid() {
     let range: SelectionRange | null = null;
     const fromCellEditor = !!target.closest('.cell-editor');
     const textSelection = fromCellEditor && hasActiveCellEditorTextSelection();
+    const contextTarget = gridEl
+      ? findContextTarget(target, e.clientX, e.clientY, gridEl)
+      : target;
 
-    const colHeader = target.closest('[data-col-header]') as HTMLElement | null;
-    const rowHeader = target.closest('[data-row-header]') as HTMLElement | null;
-    const cellEl = target.closest('[data-row][data-col]') as HTMLElement | null;
+    const colHeader = contextTarget?.closest('[data-col-header]') as HTMLElement | null;
+    const rowHeader = contextTarget?.closest('[data-row-header]') as HTMLElement | null;
+    const cellEl = contextTarget?.closest('[data-row][data-col]') as HTMLElement | null;
 
-    if (colHeader && gridRef.current?.contains(colHeader)) {
+    if (colHeader && gridEl?.contains(colHeader)) {
       col = Number(colHeader.dataset.colHeader);
       if (!Number.isInteger(col)) return;
       row = 0;
@@ -218,7 +282,7 @@ export default function Grid() {
         endCol: col,
       };
       state.selectColumn(col);
-    } else if (rowHeader && gridRef.current?.contains(rowHeader)) {
+    } else if (rowHeader && gridEl?.contains(rowHeader)) {
       row = Number(rowHeader.dataset.rowHeader);
       if (!Number.isInteger(row)) return;
       col = 0;
@@ -230,7 +294,7 @@ export default function Grid() {
         endCol: maxCol,
       };
       state.selectRow(row);
-    } else if (cellEl && gridRef.current?.contains(cellEl)) {
+    } else if (cellEl && gridEl?.contains(cellEl)) {
       row = Number(cellEl.dataset.row);
       col = Number(cellEl.dataset.col);
       if (!Number.isInteger(row) || !Number.isInteger(col)) return;
@@ -247,14 +311,15 @@ export default function Grid() {
       return;
     }
 
-    e.preventDefault();
-    e.stopPropagation();
     if (!textSelection) {
       commitActiveCellEditor({ keepEditing: true, force: true });
       state.setFocus({ row, col, editing: false });
     }
 
     const normalized = normalizeRange(range, state.document, state.columnWidths);
+    setInsertRowCountInput(String(normalized.maxRow - normalized.minRow + 1));
+    setInsertColCountInput(String(normalized.maxCol - normalized.minCol + 1));
+    setOpenSubmenu(null);
     setContextMenu({
       top: Math.max(8, e.clientY),
       left: Math.max(8, e.clientX),
@@ -267,6 +332,7 @@ export default function Grid() {
 
   const runContextAction = useCallback((action: () => void) => {
     action();
+    setOpenSubmenu(null);
     setContextMenu(null);
   }, []);
 
@@ -281,18 +347,22 @@ export default function Grid() {
   useEffect(() => {
     if (!contextMenu) return;
 
-    const handleMouseDown = (e: MouseEvent) => {
+    const handlePointerDown = (e: PointerEvent) => {
       if (contextMenuRef.current?.contains(e.target as Node)) return;
+      setOpenSubmenu(null);
       setContextMenu(null);
     };
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setContextMenu(null);
+      if (e.key === 'Escape') {
+        setOpenSubmenu(null);
+        setContextMenu(null);
+      }
     };
 
-    window.document.addEventListener('mousedown', handleMouseDown);
+    window.document.addEventListener('pointerdown', handlePointerDown, true);
     window.document.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.document.removeEventListener('mousedown', handleMouseDown);
+      window.document.removeEventListener('pointerdown', handlePointerDown, true);
       window.document.removeEventListener('keydown', handleKeyDown);
     };
   }, [contextMenu]);
@@ -333,8 +403,8 @@ export default function Grid() {
     return c >= minC && c <= maxC;
   };
 
-  const contextRowCount = contextMenu ? contextMenu.maxRow - contextMenu.minRow + 1 : 1;
-  const contextColCount = contextMenu ? contextMenu.maxCol - contextMenu.minCol + 1 : 1;
+  const customRowInsertCount = parseInsertCount(insertRowCountInput);
+  const customColInsertCount = parseInsertCount(insertColCountInput);
 
   return (
     <div
@@ -369,7 +439,8 @@ export default function Grid() {
                 key={colIdx}
                 className={`grid-col-header ${isColSelected(colIdx) ? 'header-active' : ''}`}
                 data-col-header={colIdx}
-                onClick={() => handleColHeaderClick(colIdx)}
+                onMouseDown={(e) => handleColHeaderMouseDown(colIdx, e)}
+                onMouseEnter={() => handleColHeaderMouseEnter(colIdx)}
               >
                 <span className="col-header-label">{colLabel(colIdx)}</span>
                 <div
@@ -390,16 +461,17 @@ export default function Grid() {
               onCellMouseEnter={handleCellMouseEnter}
               isCellSelected={isInRange}
               isRowSelected={isRowSelected(rowIdx)}
-              onRowHeaderClick={handleRowHeaderClick}
+              onRowHeaderMouseDown={handleRowHeaderMouseDown}
+              onRowHeaderMouseEnter={handleRowHeaderMouseEnter}
             />
           ))}
           <tr className="grid-add-row">
             <td className="row-header-cell" />
             <td
               colSpan={columnWidths.length}
-              onClick={() => insertRow(document.rows.length - 1)}
+              onClick={() => useEditorStore.getState().insertRowsAt(document.rows.length, GRID_EXPAND_BATCH)}
             >
-              <span className="add-row-hint">+ 点击添加新行</span>
+              <span className="add-row-hint">+ 点击添加 {GRID_EXPAND_BATCH} 行</span>
             </td>
           </tr>
         </tbody>
@@ -417,6 +489,18 @@ export default function Grid() {
               zIndex: 9999,
             }}
             onMouseDown={(e) => {
+              if (!(e.target as HTMLElement).closest('input')) {
+                e.preventDefault();
+              }
+              e.stopPropagation();
+            }}
+            onPointerDown={(e) => {
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+            }}
+            onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
             }}
@@ -440,35 +524,79 @@ export default function Grid() {
 
             <div className="context-menu-separator" />
 
-            <div className="context-menu-item has-submenu">
+            <div
+              className={`context-menu-item has-submenu ${openSubmenu === 'rows' ? 'submenu-open' : ''}`}
+              onMouseEnter={() => setOpenSubmenu('rows')}
+              onFocus={() => setOpenSubmenu('rows')}
+            >
               <span>插入行</span>
               <span className="submenu-arrow">›</span>
-              <div className="context-submenu">
-                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.minRow, contextRowCount))}>
-                  上增 {contextRowCount} 行
+              <div className="context-submenu insert-submenu">
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.minRow, 1))}>
+                  上增 1 行
                 </button>
-                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.maxRow + 1, contextRowCount))}>
-                  下增 {contextRowCount} 行
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.maxRow + 1, 1))}>
+                  下增 1 行
+                </button>
+                <label className="context-count-input">
+                  <span>数量</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={insertRowCountInput}
+                    onChange={(e) => setInsertRowCountInput(sanitizeCountInput(e.currentTarget.value))}
+                  />
+                </label>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.minRow, customRowInsertCount))}>
+                  上增 {customRowInsertCount} 行
+                </button>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.maxRow + 1, customRowInsertCount))}>
+                  下增 {customRowInsertCount} 行
                 </button>
               </div>
             </div>
 
-            <div className="context-menu-item has-submenu">
+            <div
+              className={`context-menu-item has-submenu ${openSubmenu === 'columns' ? 'submenu-open' : ''}`}
+              onMouseEnter={() => setOpenSubmenu('columns')}
+              onFocus={() => setOpenSubmenu('columns')}
+            >
               <span>插入列</span>
               <span className="submenu-arrow">›</span>
-              <div className="context-submenu">
-                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.minCol, contextColCount))}>
-                  左增 {contextColCount} 列
+              <div className="context-submenu insert-submenu">
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.minCol, 1))}>
+                  左增 1 列
                 </button>
-                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.maxCol + 1, contextColCount))}>
-                  右增 {contextColCount} 列
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.maxCol + 1, 1))}>
+                  右增 1 列
+                </button>
+                <label className="context-count-input">
+                  <span>数量</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={999}
+                    value={insertColCountInput}
+                    onChange={(e) => setInsertColCountInput(sanitizeCountInput(e.currentTarget.value))}
+                  />
+                </label>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.minCol, customColInsertCount))}>
+                  左增 {customColInsertCount} 列
+                </button>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.maxCol + 1, customColInsertCount))}>
+                  右增 {customColInsertCount} 列
                 </button>
               </div>
             </div>
 
             <div className="context-menu-separator" />
 
-            <div className="context-menu-item has-submenu">
+            <div
+              className={`context-menu-item has-submenu ${openSubmenu === 'format' ? 'submenu-open' : ''}`}
+              onMouseEnter={() => setOpenSubmenu('format')}
+              onFocus={() => setOpenSubmenu('format')}
+            >
               <span>修改格式</span>
               <span className="submenu-arrow">›</span>
               <div className="context-submenu format-submenu">
@@ -534,4 +662,47 @@ function isInSelection(
   const minC = Math.min(range.startCol, range.endCol);
   const maxC = Math.max(range.startCol, range.endCol);
   return row >= minR && row <= maxR && col >= minC && col <= maxC;
+}
+
+function findContextTarget(
+  target: HTMLElement,
+  clientX: number,
+  clientY: number,
+  gridEl: HTMLElement
+): HTMLElement | null {
+  const selector = '[data-row][data-col], [data-row-header], [data-col-header]';
+  const direct = target.closest(selector) as HTMLElement | null;
+  if (direct && gridEl.contains(direct)) return direct;
+
+  const offsets = [
+    [1, 1],
+    [2, 2],
+    [4, 4],
+    [6, 6],
+    [8, 8],
+    [10, 10],
+    [12, 12],
+    [1, 0],
+    [0, 1],
+    [-1, 1],
+    [1, -1],
+  ];
+
+  for (const [dx, dy] of offsets) {
+    const el = window.document.elementFromPoint(clientX + dx, clientY + dy) as HTMLElement | null;
+    const snapped = el?.closest(selector) as HTMLElement | null;
+    if (snapped && gridEl.contains(snapped)) return snapped;
+  }
+
+  return null;
+}
+
+function sanitizeCountInput(value: string): string {
+  return value.replace(/\D/g, '').slice(0, 3);
+}
+
+function parseInsertCount(value: string): number {
+  const n = Number.parseInt(value, 10);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(1, Math.min(999, n));
 }
