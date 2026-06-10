@@ -1,0 +1,37 @@
+schema_version: 1
+module_path: ""
+title: PRD Writer - Tab-ML 表格化文档编辑器
+scope:
+    - src/
+    - index.html
+    - package.json
+    - package-lock.json
+    - tsconfig.json
+    - vite.config.ts
+    - .qoder\specs\PRD_Writing_Tool_task-212.md
+    - src\App.tsx
+    - src\components\cell\Cell.tsx
+    - src\components\cell\CellEditor.tsx
+    - src\components\cell\CellRenderer.tsx
+    - src\components\grid\ColumnResizer.tsx
+    - src\components\grid\Grid.tsx
+    - src\components\grid\GridRow.tsx
+    - src\components\layout\AppShell.tsx
+    - src\components\layout\ModeToggle.tsx
+    - src\components\source\SourceView.tsx
+    - src\components\toolbar\TopToolbar.tsx
+    - src\constants\format.ts
+    - src\core\io\file-handler.ts
+    - src\core\tabml\__tests__\roundtrip.test.ts
+    - src\core\tabml\parser.ts
+    - src\core\tabml\renderer.ts
+    - src\core\tabml\serializer.ts
+    - src\hooks\use-keyboard-navigation.ts
+    - src\main.tsx
+    - src\store\editor-store.ts
+    - src\styles\index.css
+    - src\types\tabml.ts
+    - src\vite-env.d.ts
+source_files: []
+depends_on: []
+related_to: []
