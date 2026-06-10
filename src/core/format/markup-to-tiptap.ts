@@ -31,7 +31,7 @@ export function markupToTiptapHTML(cell: TabMLCell): string {
   }
 
   const html = parts.join('');
-  return `<p>${html || '<br>'}</p>`;
+  return `<p>${html}</p>`;
 }
 
 function renderInlineToHTML(item: InlineContent): string {

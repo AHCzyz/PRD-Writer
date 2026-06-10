@@ -94,15 +94,18 @@ export function FloatingToolbar({ editor, cellEl }: FloatingToolbarProps) {
       e.stopPropagation();
       toolbarInteracting = true;
     };
-    const handleMouseUp = () => {
-      toolbarInteracting = false;
+    const handleClick = () => {
+      // 延迟重置，确保 blur handler 的 setTimeout 已检查过
+      setTimeout(() => {
+        toolbarInteracting = false;
+      }, 300);
     };
 
     el.addEventListener('mousedown', handleMouseDown);
-    el.addEventListener('mouseup', handleMouseUp);
+    el.addEventListener('click', handleClick);
     return () => {
       el.removeEventListener('mousedown', handleMouseDown);
-      el.removeEventListener('mouseup', handleMouseUp);
+      el.removeEventListener('click', handleClick);
       toolbarInteracting = false;
     };
   }, [visible]);
