@@ -34,7 +34,11 @@ export default function GridRow({
   if (row.isEmpty) {
     return (
       <tr className="grid-row" data-row-index={rowIndex}>
-        <td className="row-header-cell">
+        <td
+          className={`row-header-cell ${isRowSelected ? 'header-active' : ''}`}
+          data-row-header={rowIndex}
+          onClick={() => onRowHeaderClick(rowIndex)}
+        >
           <span className="row-header-label">{rowIndex + 1}</span>
         </td>
         {Array.from({ length: columnWidths.length }).map((_, colIdx) => (
@@ -58,6 +62,7 @@ export default function GridRow({
       {/* 行号头 */}
       <td
         className={`row-header-cell ${isRowSelected ? 'header-active' : ''}`}
+        data-row-header={rowIndex}
         onClick={() => onRowHeaderClick(rowIndex)}
       >
         <span className="row-header-label">{rowIndex + 1}</span>

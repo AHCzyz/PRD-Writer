@@ -14,7 +14,7 @@ export const SEMANTIC_COLORS = {
 export const MARK_STYLES = {
   bold: { fontWeight: 'bold' },
   strikethrough: { textDecoration: 'line-through', backgroundColor: '#f3f4f6', color: '#9ca3af' },
-  warning: { color: '#dc2626', fontWeight: 'bold' },
+  warning: { color: '#dc2626', backgroundColor: '#fee2e2', fontWeight: 'bold' },
   modified: { backgroundColor: '#dcfce7' },
 } as const;
 

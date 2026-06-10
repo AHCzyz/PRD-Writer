@@ -9,7 +9,6 @@ import { useEditorStore } from '../store/editor-store';
 import { commitActiveCellEditor, hasActiveCellEditorChanges } from '../components/cell/CellEditor';
 
 export function useKeyboardNavigation() {
-  const deleteRow = useEditorStore((s) => s.deleteRow);
   const indentRow = useEditorStore((s) => s.indentRow);
   const addColumn = useEditorStore((s) => s.addColumn);
 
@@ -18,7 +17,21 @@ export function useKeyboardNavigation() {
     const target = e.target as HTMLElement | null;
     if (e.defaultPrevented && target?.closest('.cell-editor')) return;
 
-    const { focus, document, setFocus, setPendingEditKey, selectAll, selectionRange, selectAllCells, clearSelection } = useEditorStore.getState();
+    const {
+      focus,
+      document,
+      setFocus,
+      setPendingEditKey,
+      selectAll,
+      selectionRange,
+      selectAllCells,
+      clearSelection,
+      clearSelectionContent,
+      copySelection,
+      cutSelection,
+      pasteClipboard,
+      deleteRow,
+    } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
     const currentRow = rows[row];
@@ -49,6 +62,24 @@ export function useKeyboardNavigation() {
         e.preventDefault();
         setFocus({ row, col, editing: false });
       }
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      copySelection();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'x') {
+      e.preventDefault();
+      cutSelection();
+      return;
+    }
+
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
+      e.preventDefault();
+      pasteClipboard();
       return;
     }
 
@@ -140,17 +171,15 @@ export function useKeyboardNavigation() {
 
       case 'Delete':
       case 'Backspace': {
-        const cellText = getCellPlainText(currentRow, col);
-        if (cellText === '' && col === 0 && e.key === 'Backspace') {
+        const cellIsEmpty = getCellPlainText(currentRow, col) === '' && !currentRow.cells[col]?.image;
+        if (!selectionRange && cellIsEmpty && col === 0 && e.key === 'Backspace') {
           // 空格 + col=0 + Backspace = 删除行
           e.preventDefault();
           deleteRow(row);
-        } else if (cellText !== '') {
+        } else {
           // 有内容的格子 → 清除内容
           e.preventDefault();
-          const { updateCell } = useEditorStore.getState();
-          const emptyCell = { ...currentRow.cells[col], content: [{ type: 'text' as const, text: '' }] };
-          updateCell(row, col, emptyCell);
+          clearSelectionContent();
         }
         break;
       }
@@ -177,7 +206,7 @@ export function useKeyboardNavigation() {
         break;
       }
     }
-  }, [deleteRow, indentRow, addColumn]);
+  }, [indentRow, addColumn]);
 
   useEffect(() => {
     const el = document.querySelector('.grid-container');

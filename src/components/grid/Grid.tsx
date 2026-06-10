@@ -1,20 +1,34 @@
 /**
  * Grid 主网格组件
- * Excel 风格行列头 + 拖动多选 + 列宽调整
  */
-import { useCallback, useRef, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
-import { useEditorStore, type FormatType } from '../../store/editor-store';
+import { useEditorStore, type FormatType, type SelectionRange } from '../../store/editor-store';
 import GridRow from './GridRow';
 import { useKeyboardNavigation } from '../../hooks/use-keyboard-navigation';
 import { isToolbarInteracting } from '../toolbar/FloatingToolbar';
-import { commitActiveCellEditor } from '../cell/CellEditor';
+import {
+  applyActiveCellEditorFormat,
+  commitActiveCellEditor,
+  hasActiveCellEditorTextSelection,
+} from '../cell/CellEditor';
 import {
   MIN_COLUMN_WIDTH,
   MAX_COLUMN_WIDTH,
 } from '../../constants/format';
 
-/** 列索引转字母标签 (0→A, 25→Z, 26→AA) */
+interface ContextMenuState {
+  top: number;
+  left: number;
+  row: number;
+  col: number;
+  minRow: number;
+  maxRow: number;
+  minCol: number;
+  maxCol: number;
+  textSelection: boolean;
+}
+
 function colLabel(idx: number): string {
   let s = '';
   let n = idx;
@@ -37,34 +51,31 @@ export default function Grid() {
   const fontSize = useEditorStore((s) => s.fontSize);
   const selectionRange = useEditorStore((s) => s.selectionRange);
   const selectAll = useEditorStore((s) => s.selectAll);
-  const applyFormat = useEditorStore((s) => s.applyFormat);
+  const clipboard = useEditorStore((s) => s.clipboard);
 
   const gridRef = useRef<HTMLDivElement>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  const selectionToolbarRef = useRef<HTMLDivElement>(null);
-  const [selectionToolbar, setSelectionToolbar] = useState<{ top: number; left: number } | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
 
-  // 拖动选区状态
   const dragRef = useRef<{
     dragging: boolean;
     startRow: number;
     startCol: number;
   } | null>(null);
 
-  // 列宽拖拽状态
   const [resizeCol, setResizeCol] = useState<number | null>(null);
   const resizeStartX = useRef(0);
   const resizeStartW = useRef(0);
 
-  // 键盘导航
   useKeyboardNavigation();
 
-  // === 拖动选区 ===
   const handleCellMouseDown = useCallback(
     (rowIdx: number, colIdx: number, e: React.MouseEvent) => {
-      // 右键/中键不选
       if (e.button !== 0) return;
       e.preventDefault();
+      setContextMenu(null);
+
       const state = useEditorStore.getState();
       const currentFocus = state.focus;
       const switchingCell = currentFocus.row !== rowIdx || currentFocus.col !== colIdx;
@@ -74,6 +85,7 @@ export default function Grid() {
       if (switchingCell) {
         commitActiveCellEditor({ keepEditing: true, force: true });
       }
+
       dragRef.current = { dragging: true, startRow: rowIdx, startCol: colIdx };
       state.setSelectionRange({
         startRow: rowIdx,
@@ -81,7 +93,6 @@ export default function Grid() {
         endRow: rowIdx,
         endCol: colIdx,
       });
-      // 同时设置 focus
       state.setFocus({ row: rowIdx, col: colIdx, editing: false });
     },
     []
@@ -97,7 +108,6 @@ export default function Grid() {
     });
   }, []);
 
-  // 全局 mouseup 结束拖动
   useEffect(() => {
     const handleMouseUp = () => {
       if (dragRef.current?.dragging) {
@@ -108,7 +118,6 @@ export default function Grid() {
     return () => window.document.removeEventListener('mouseup', handleMouseUp);
   }, []);
 
-  // === 列宽拖拽 ===
   const handleResizeStart = useCallback(
     (colIdx: number, e: React.MouseEvent) => {
       e.preventDefault();
@@ -133,20 +142,21 @@ export default function Grid() {
     [columnWidths]
   );
 
-  // === 行列头选择 ===
   const handleRowHeaderClick = useCallback((rowIdx: number) => {
+    setContextMenu(null);
     useEditorStore.getState().selectRow(rowIdx);
   }, []);
 
   const handleColHeaderClick = useCallback((colIdx: number) => {
+    setContextMenu(null);
     useEditorStore.getState().selectColumn(colIdx);
   }, []);
 
   const handleCornerClick = useCallback(() => {
+    setContextMenu(null);
     useEditorStore.getState().selectAllCells();
   }, []);
 
-  // === mousedown 同步提交（编辑态退出）===
   useEffect(() => {
     const el = gridRef.current;
     if (!el) return;
@@ -161,6 +171,7 @@ export default function Grid() {
       );
       if (editingCell && editingCell.contains(target)) return;
       if (target.closest('.floating-toolbar')) return;
+      if (target.closest('.context-menu')) return;
 
       commitActiveCellEditor({ keepEditing: true, force: true });
     };
@@ -169,9 +180,9 @@ export default function Grid() {
     return () => window.document.removeEventListener('mousedown', handleMouseDown);
   }, []);
 
-  // 点击空白区域退出编辑
   const handleGridClick = useCallback(
     (e: React.MouseEvent) => {
+      setContextMenu(null);
       if (e.target === gridRef.current || e.target === tableRef.current) {
         const { focus: f } = useEditorStore.getState();
         commitActiveCellEditor({ force: true });
@@ -181,79 +192,117 @@ export default function Grid() {
     [setFocus]
   );
 
-  const handleGridContextMenu = useCallback(
-    (e: React.MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (target.closest('.cell-editor') || target.closest('.floating-toolbar')) return;
+  const handleGridContextMenu = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('.floating-toolbar')) return;
 
-      const cellEl = target.closest('[data-row][data-col]') as HTMLElement | null;
-      if (!cellEl || !gridRef.current?.contains(cellEl)) return;
+    const state = useEditorStore.getState();
+    let row = state.focus.row;
+    let col = state.focus.col;
+    let range: SelectionRange | null = null;
+    const fromCellEditor = !!target.closest('.cell-editor');
+    const textSelection = fromCellEditor && hasActiveCellEditorTextSelection();
 
-      const row = Number(cellEl.dataset.row);
-      const col = Number(cellEl.dataset.col);
+    const colHeader = target.closest('[data-col-header]') as HTMLElement | null;
+    const rowHeader = target.closest('[data-row-header]') as HTMLElement | null;
+    const cellEl = target.closest('[data-row][data-col]') as HTMLElement | null;
+
+    if (colHeader && gridRef.current?.contains(colHeader)) {
+      col = Number(colHeader.dataset.colHeader);
+      if (!Number.isInteger(col)) return;
+      row = 0;
+      range = {
+        startRow: 0,
+        startCol: col,
+        endRow: state.document.rows.length - 1,
+        endCol: col,
+      };
+      state.selectColumn(col);
+    } else if (rowHeader && gridRef.current?.contains(rowHeader)) {
+      row = Number(rowHeader.dataset.rowHeader);
+      if (!Number.isInteger(row)) return;
+      col = 0;
+      const maxCol = getMaxCol(state.document, state.columnWidths);
+      range = {
+        startRow: row,
+        startCol: 0,
+        endRow: row,
+        endCol: maxCol,
+      };
+      state.selectRow(row);
+    } else if (cellEl && gridRef.current?.contains(cellEl)) {
+      row = Number(cellEl.dataset.row);
+      col = Number(cellEl.dataset.col);
       if (!Number.isInteger(row) || !Number.isInteger(col)) return;
 
-      e.preventDefault();
-      e.stopPropagation();
-
-      const state = useEditorStore.getState();
-      commitActiveCellEditor({ keepEditing: true, force: true });
-
-      const selected =
-        state.selectAll || isInSelection(state.selectionRange, row, col);
+      const selected = state.selectAll || isInSelection(state.selectionRange, row, col);
+      range = selected
+        ? state.selectionRange || fullRange(state.document, state.columnWidths)
+        : { startRow: row, startCol: col, endRow: row, endCol: col };
 
       if (!selected) {
-        state.setSelectionRange({
-          startRow: row,
-          startCol: col,
-          endRow: row,
-          endCol: col,
-        });
+        state.setSelectionRange(range);
       }
+    } else {
+      return;
+    }
 
+    e.preventDefault();
+    e.stopPropagation();
+    if (!textSelection) {
+      commitActiveCellEditor({ keepEditing: true, force: true });
       state.setFocus({ row, col, editing: false });
-      setSelectionToolbar({
-        top: Math.max(8, e.clientY - 44),
-        left: Math.max(8, e.clientX - 140),
-      });
-    },
-    []
-  );
+    }
 
-  const handleSelectionFormat = useCallback(
-    (format: FormatType) => {
-      applyFormat(format);
-      setSelectionToolbar(null);
-    },
-    [applyFormat]
-  );
+    const normalized = normalizeRange(range, state.document, state.columnWidths);
+    setContextMenu({
+      top: Math.max(8, e.clientY),
+      left: Math.max(8, e.clientX),
+      row,
+      col,
+      textSelection,
+      ...normalized,
+    });
+  }, []);
+
+  const runContextAction = useCallback((action: () => void) => {
+    action();
+    setContextMenu(null);
+  }, []);
+
+  const applyContextFormat = useCallback((format: FormatType, textSelection: boolean) => {
+    if (textSelection && applyActiveCellEditorFormat(format)) {
+      commitActiveCellEditor({ keepEditing: true, force: true });
+      return;
+    }
+    useEditorStore.getState().applyFormat(format);
+  }, []);
 
   useEffect(() => {
-    if (!selectionToolbar) return;
+    if (!contextMenu) return;
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (selectionToolbarRef.current?.contains(e.target as Node)) return;
-      setSelectionToolbar(null);
+      if (contextMenuRef.current?.contains(e.target as Node)) return;
+      setContextMenu(null);
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setContextMenu(null);
     };
 
     window.document.addEventListener('mousedown', handleMouseDown);
-    return () => window.document.removeEventListener('mousedown', handleMouseDown);
-  }, [selectionToolbar]);
+    window.document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.document.removeEventListener('mousedown', handleMouseDown);
+      window.document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [contextMenu]);
 
-  useEffect(() => {
-    if (!selectionRange && !selectAll) {
-      setSelectionToolbar(null);
-    }
-  }, [selectionRange, selectAll]);
-
-  // 聚焦当前 cell 元素
   useEffect(() => {
     if (!gridRef.current) return;
     const cellEl = gridRef.current.querySelector(
       `[data-row="${focus.row}"][data-col="${focus.col}"]`
     ) as HTMLElement;
     if (cellEl) {
-      // 优先聚焦 CellEditor 的 contenteditable（始终挂载在聚焦单元格）
       const editable = cellEl.querySelector('.ProseMirror') as HTMLElement;
       if (editable) {
         editable.focus();
@@ -264,19 +313,12 @@ export default function Grid() {
     }
   }, [focus.row, focus.col, focus.editing]);
 
-  /** 判断某格是否在选区内 */
   const isInRange = (r: number, c: number): boolean => {
     if (selectAll) return true;
     if (!selectionRange) return false;
-    const { startRow, startCol, endRow, endCol } = selectionRange;
-    const minR = Math.min(startRow, endRow);
-    const maxR = Math.max(startRow, endRow);
-    const minC = Math.min(startCol, endCol);
-    const maxC = Math.max(startCol, endCol);
-    return r >= minR && r <= maxR && c >= minC && c <= maxC;
+    return isInSelection(selectionRange, r, c);
   };
 
-  // 选中行高亮判断
   const isRowSelected = (r: number): boolean => {
     if (!selectionRange) return false;
     const minR = Math.min(selectionRange.startRow, selectionRange.endRow);
@@ -291,6 +333,9 @@ export default function Grid() {
     return c >= minC && c <= maxC;
   };
 
+  const contextRowCount = contextMenu ? contextMenu.maxRow - contextMenu.minRow + 1 : 1;
+  const contextColCount = contextMenu ? contextMenu.maxCol - contextMenu.minCol + 1 : 1;
+
   return (
     <div
       ref={gridRef}
@@ -299,7 +344,7 @@ export default function Grid() {
         '--cell-font-size': `${fontSize}px`,
         '--cell-line-height': `${Math.ceil(fontSize * 1.5)}px`,
         '--row-header-width': `${ROW_HEADER_WIDTH}px`,
-      } as React.CSSProperties}
+      } as CSSProperties}
       onClick={handleGridClick}
       onContextMenu={handleGridContextMenu}
       tabIndex={0}
@@ -313,18 +358,17 @@ export default function Grid() {
         </colgroup>
         <thead>
           <tr className="grid-header-row">
-            {/* 左上角全选按钮 */}
             <th
               className={`grid-corner-cell ${selectAll || (selectionRange && isInRange(0, 0) && isInRange(document.rows.length - 1, columnWidths.length - 1)) ? 'header-active' : ''}`}
               onClick={handleCornerClick}
             >
               <span className="corner-icon">⊞</span>
             </th>
-            {/* 列头 A B C ... */}
             {columnWidths.map((_, colIdx) => (
               <th
                 key={colIdx}
                 className={`grid-col-header ${isColSelected(colIdx) ? 'header-active' : ''}`}
+                data-col-header={colIdx}
                 onClick={() => handleColHeaderClick(colIdx)}
               >
                 <span className="col-header-label">{colLabel(colIdx)}</span>
@@ -349,7 +393,6 @@ export default function Grid() {
               onRowHeaderClick={handleRowHeaderClick}
             />
           ))}
-          {/* 末尾空白行，点击添加新行 */}
           <tr className="grid-add-row">
             <td className="row-header-cell" />
             <td
@@ -361,15 +404,16 @@ export default function Grid() {
           </tr>
         </tbody>
       </table>
-      {selectionToolbar &&
+
+      {contextMenu &&
         createPortal(
           <div
-            ref={selectionToolbarRef}
-            className="floating-toolbar selection-toolbar"
+            ref={contextMenuRef}
+            className="context-menu"
             style={{
               position: 'fixed',
-              top: selectionToolbar.top,
-              left: selectionToolbar.left,
+              top: contextMenu.top,
+              left: contextMenu.left,
               zIndex: 9999,
             }}
             onMouseDown={(e) => {
@@ -377,31 +421,67 @@ export default function Grid() {
               e.stopPropagation();
             }}
           >
-            <button className="toolbar-btn" onClick={() => handleSelectionFormat('bold')} title="加粗">
-              <strong>B</strong>
+            <button className="context-menu-item" onClick={() => runContextAction(() => useEditorStore.getState().copySelection())}>
+              复制
             </button>
-            <button className="toolbar-btn" onClick={() => handleSelectionFormat('strikethrough')} title="废弃">
-              <s>S</s>
+            <button
+              className="context-menu-item"
+              disabled={!clipboard}
+              onClick={() => runContextAction(() => useEditorStore.getState().pasteClipboard(contextMenu.row, contextMenu.col))}
+            >
+              粘贴
             </button>
-            <button className="toolbar-btn" onClick={() => handleSelectionFormat('warning')} title="警告">
-              <span style={{ color: '#dc2626', fontWeight: 'bold' }}>!</span>
+            <button className="context-menu-item" onClick={() => runContextAction(() => useEditorStore.getState().cutSelection())}>
+              剪切
             </button>
-            <button className="toolbar-btn" onClick={() => handleSelectionFormat('modified')} title="新增/修改">
-              <span style={{ background: '#dcfce7', padding: '0 2px' }}>+</span>
+            <button className="context-menu-item danger" onClick={() => runContextAction(() => useEditorStore.getState().deleteSelection())}>
+              删除
             </button>
-            <span className="toolbar-divider" />
-            <button className="toolbar-btn toolbar-color-red" onClick={() => handleSelectionFormat('color-red')} title="强调">
-              R
-            </button>
-            <button className="toolbar-btn toolbar-color-green" onClick={() => handleSelectionFormat('color-green')} title="说明">
-              G
-            </button>
-            <button className="toolbar-btn toolbar-color-blue" onClick={() => handleSelectionFormat('color-blue')} title="参数/信息">
-              B
-            </button>
-            <button className="toolbar-btn toolbar-color-gray" onClick={() => handleSelectionFormat('color-gray')} title="次要">
-              -
-            </button>
+
+            <div className="context-menu-separator" />
+
+            <div className="context-menu-item has-submenu">
+              <span>插入行</span>
+              <span className="submenu-arrow">›</span>
+              <div className="context-submenu">
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.minRow, contextRowCount))}>
+                  上增 {contextRowCount} 行
+                </button>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertRowsAt(contextMenu.maxRow + 1, contextRowCount))}>
+                  下增 {contextRowCount} 行
+                </button>
+              </div>
+            </div>
+
+            <div className="context-menu-item has-submenu">
+              <span>插入列</span>
+              <span className="submenu-arrow">›</span>
+              <div className="context-submenu">
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.minCol, contextColCount))}>
+                  左增 {contextColCount} 列
+                </button>
+                <button onClick={() => runContextAction(() => useEditorStore.getState().insertColumnsAt(contextMenu.maxCol + 1, contextColCount))}>
+                  右增 {contextColCount} 列
+                </button>
+              </div>
+            </div>
+
+            <div className="context-menu-separator" />
+
+            <div className="context-menu-item has-submenu">
+              <span>修改格式</span>
+              <span className="submenu-arrow">›</span>
+              <div className="context-submenu format-submenu">
+                <button onClick={() => runContextAction(() => applyContextFormat('bold', contextMenu.textSelection))}>加粗</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('strikethrough', contextMenu.textSelection))}>删除线</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('warning', contextMenu.textSelection))}>警告</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('modified', contextMenu.textSelection))}>新增</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('color-red', contextMenu.textSelection))}>强调</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('color-green', contextMenu.textSelection))}>说明</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('color-blue', contextMenu.textSelection))}>参数</button>
+                <button onClick={() => runContextAction(() => applyContextFormat('color-gray', contextMenu.textSelection))}>次要</button>
+              </div>
+            </div>
           </div>,
           window.document.body
         )}
@@ -409,8 +489,42 @@ export default function Grid() {
   );
 }
 
+function fullRange(
+  doc: { rows: Array<{ cells: unknown[] }> },
+  columnWidths: number[]
+): SelectionRange {
+  return {
+    startRow: 0,
+    startCol: 0,
+    endRow: Math.max(0, doc.rows.length - 1),
+    endCol: getMaxCol(doc, columnWidths),
+  };
+}
+
+function normalizeRange(
+  range: SelectionRange | null,
+  doc: { rows: Array<{ cells: unknown[] }> },
+  columnWidths: number[]
+): Omit<ContextMenuState, 'top' | 'left' | 'row' | 'col' | 'textSelection'> {
+  const fallback = fullRange(doc, columnWidths);
+  const source = range || fallback;
+  return {
+    minRow: Math.max(0, Math.min(source.startRow, source.endRow)),
+    maxRow: Math.min(Math.max(0, doc.rows.length - 1), Math.max(source.startRow, source.endRow)),
+    minCol: Math.max(0, Math.min(source.startCol, source.endCol)),
+    maxCol: Math.max(0, Math.max(source.startCol, source.endCol)),
+  };
+}
+
+function getMaxCol(
+  doc: { rows: Array<{ cells: unknown[] }> },
+  columnWidths: number[]
+): number {
+  return Math.max(...doc.rows.map((row) => row.cells.length), columnWidths.length, 1) - 1;
+}
+
 function isInSelection(
-  range: { startRow: number; startCol: number; endRow: number; endCol: number } | null,
+  range: SelectionRange | null,
   row: number,
   col: number
 ): boolean {

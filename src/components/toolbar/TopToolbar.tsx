@@ -1,8 +1,40 @@
 /**
- * 顶部工具栏 — 格式按钮始终可见
- * 非编辑态：直接修改整个格子格式；编辑态：通过快捷键
+ * 顶部工具栏
  */
+import type { ReactNode } from 'react';
 import { useEditorStore, type FormatType } from '../../store/editor-store';
+
+interface ToolbarButtonProps {
+  label: string;
+  title: string;
+  active?: boolean;
+  disabled?: boolean;
+  className?: string;
+  onClick: () => void;
+  children: ReactNode;
+}
+
+function ToolbarButton({
+  label,
+  title,
+  active,
+  disabled,
+  className = '',
+  onClick,
+  children,
+}: ToolbarButtonProps) {
+  return (
+    <button
+      className={`toolbar-btn top-toolbar-btn ${active ? 'active' : ''} ${className}`}
+      onClick={onClick}
+      title={title}
+      disabled={disabled}
+    >
+      <span className="toolbar-icon">{children}</span>
+      <span className="toolbar-label">{label}</span>
+    </button>
+  );
+}
 
 export default function TopToolbar() {
   const viewMode = useEditorStore((s) => s.viewMode);
@@ -34,11 +66,7 @@ export default function TopToolbar() {
   };
 
   const handleFormat = (format: FormatType) => {
-    if (focus.editing) {
-      // 编辑中：提示快捷键
-      console.log(`快捷键: 在编辑中的格子内使用对应快捷键`);
-    } else {
-      // 非编辑态：应用到整个格子
+    if (!focus.editing) {
       applyFormat(format);
     }
   };
@@ -47,137 +75,140 @@ export default function TopToolbar() {
     try {
       await navigator.clipboard.writeText(sourceText);
     } catch {
-      // fallback
+      // Clipboard access can be unavailable in some shells.
     }
   };
 
   return (
     <div className="top-toolbar">
-      {/* 标题 */}
       <div className="toolbar-group">
-        <button
-          className={`toolbar-btn ${currentCell?.heading === 1 ? 'active' : ''}`}
-          onClick={() => toggleHeading(1)}
+        <ToolbarButton
+          label="标题1"
           title="标题1"
+          active={currentCell?.heading === 1}
+          onClick={() => toggleHeading(1)}
         >
           H1
-        </button>
-        <button
-          className={`toolbar-btn ${currentCell?.heading === 2 ? 'active' : ''}`}
-          onClick={() => toggleHeading(2)}
+        </ToolbarButton>
+        <ToolbarButton
+          label="标题2"
           title="标题2"
+          active={currentCell?.heading === 2}
+          onClick={() => toggleHeading(2)}
         >
           H2
-        </button>
-        <button
-          className={`toolbar-btn ${currentCell?.heading === 3 ? 'active' : ''}`}
-          onClick={() => toggleHeading(3)}
+        </ToolbarButton>
+        <ToolbarButton
+          label="标题3"
           title="标题3"
+          active={currentCell?.heading === 3}
+          onClick={() => toggleHeading(3)}
         >
           H3
-        </button>
+        </ToolbarButton>
       </div>
 
       <div className="toolbar-divider" />
 
-      {/* Todo */}
       <div className="toolbar-group">
-        <button
-          className={`toolbar-btn ${currentCell?.todo === 'uncheck' ? 'active' : ''}`}
-          onClick={() => toggleTodo('uncheck')}
+        <ToolbarButton
+          label="待办"
           title="待办"
+          active={currentCell?.todo === 'uncheck'}
+          onClick={() => toggleTodo('uncheck')}
         >
-          ☐
-        </button>
-        <button
-          className={`toolbar-btn ${currentCell?.todo === 'check' ? 'active' : ''}`}
+          □
+        </ToolbarButton>
+        <ToolbarButton
+          label="完成"
+          title="完成"
+          active={currentCell?.todo === 'check'}
           onClick={() => toggleTodo('check')}
-          title="已完成"
         >
           ☑
-        </button>
-        <button
-          className={`toolbar-btn ${currentCell?.todo === 'question' ? 'active' : ''}`}
-          onClick={() => toggleTodo('question')}
+        </ToolbarButton>
+        <ToolbarButton
+          label="确认"
           title="待确认"
+          active={currentCell?.todo === 'question'}
+          onClick={() => toggleTodo('question')}
         >
           ?
-        </button>
+        </ToolbarButton>
       </div>
 
       <div className="toolbar-divider" />
 
-      {/* 内联格式 */}
       <div className="toolbar-group">
-        <button className="toolbar-btn" title="加粗 (Ctrl+B)" onClick={() => handleFormat('bold')}>
+        <ToolbarButton label="加粗" title="加粗 (Ctrl+B)" onClick={() => handleFormat('bold')}>
           <strong>B</strong>
-        </button>
-        <button className="toolbar-btn" title="废弃 (Ctrl+D)" onClick={() => handleFormat('strikethrough')}>
-          <s>S</s>
-        </button>
-        <button className="toolbar-btn" title="警告 (Ctrl+K)" onClick={() => handleFormat('warning')}>
-          <span style={{ color: '#dc2626', fontWeight: 'bold' }}>!</span>
-        </button>
-        <button className="toolbar-btn" title="新增/修改 (Ctrl+M)" onClick={() => handleFormat('modified')}>
-          <span style={{ background: '#dcfce7', padding: '0 2px' }}>+</span>
-        </button>
+        </ToolbarButton>
+        <ToolbarButton label="删除" title="删除线" onClick={() => handleFormat('strikethrough')}>
+          <span className="format-swatch format-swatch-delete">
+            <s>S</s>
+          </span>
+        </ToolbarButton>
+        <ToolbarButton label="警告" title="警告" onClick={() => handleFormat('warning')}>
+          <span className="format-swatch format-swatch-warning">!</span>
+        </ToolbarButton>
+        <ToolbarButton label="新增" title="新增/修改" onClick={() => handleFormat('modified')}>
+          <span className="format-swatch format-swatch-modified">+</span>
+        </ToolbarButton>
       </div>
 
       <div className="toolbar-divider" />
 
-      {/* 语义颜色 */}
       <div className="toolbar-group">
-        <button className="toolbar-btn toolbar-color-red" title="强调-红色" onClick={() => handleFormat('color-red')}>
+        <ToolbarButton label="强调" title="强调-红色" className="toolbar-color-red" onClick={() => handleFormat('color-red')}>
           R
-        </button>
-        <button className="toolbar-btn toolbar-color-green" title="说明-绿色" onClick={() => handleFormat('color-green')}>
+        </ToolbarButton>
+        <ToolbarButton label="说明" title="说明-绿色" className="toolbar-color-green" onClick={() => handleFormat('color-green')}>
           G
-        </button>
-        <button className="toolbar-btn toolbar-color-blue" title="参数-蓝色" onClick={() => handleFormat('color-blue')}>
+        </ToolbarButton>
+        <ToolbarButton label="参数" title="参数/信息-蓝色" className="toolbar-color-blue" onClick={() => handleFormat('color-blue')}>
           B
-        </button>
-        <button className="toolbar-btn toolbar-color-gray" title="次要-灰色" onClick={() => handleFormat('color-gray')}>
-          ⊘
-        </button>
+        </ToolbarButton>
+        <ToolbarButton label="次要" title="次要-灰色" className="toolbar-color-gray" onClick={() => handleFormat('color-gray')}>
+          -
+        </ToolbarButton>
       </div>
 
       <div className="toolbar-divider" />
 
-      {/* 工具 */}
       <div className="toolbar-group">
-        <button
-          className={`toolbar-btn ${showGridLines ? 'active' : ''}`}
-          onClick={toggleGridLines}
+        <ToolbarButton
+          label="网格"
           title="网格线"
+          active={showGridLines}
+          onClick={toggleGridLines}
         >
-          ⊞
-        </button>
-        <button className="toolbar-btn" onClick={copySource} title="复制源码">
-          📋
-        </button>
+          #
+        </ToolbarButton>
+        <ToolbarButton label="源码" title="复制源码" onClick={copySource}>
+          ⧉
+        </ToolbarButton>
       </div>
 
       <div className="toolbar-divider" />
 
-      {/* 字号 */}
       <div className="toolbar-group">
-        <button
-          className="toolbar-btn"
-          onClick={() => setFontSize(fontSize - 1)}
+        <ToolbarButton
+          label="缩小"
           title="缩小字号"
           disabled={fontSize <= 10}
+          onClick={() => setFontSize(fontSize - 1)}
         >
           A-
-        </button>
+        </ToolbarButton>
         <span className="font-size-display">{fontSize}px</span>
-        <button
-          className="toolbar-btn"
-          onClick={() => setFontSize(fontSize + 1)}
+        <ToolbarButton
+          label="放大"
           title="放大字号"
           disabled={fontSize >= 32}
+          onClick={() => setFontSize(fontSize + 1)}
         >
           A+
-        </button>
+        </ToolbarButton>
       </div>
     </div>
   );

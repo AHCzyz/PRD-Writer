@@ -13,7 +13,7 @@ import { getImageFromClipboard, getImageDimensions } from '../../core/image/imag
 import { FloatingToolbar } from '../toolbar/FloatingToolbar';
 import { isToolbarInteracting } from '../toolbar/FloatingToolbar';
 import { SlashCommand } from '../toolbar/SlashCommand';
-import { useEditorStore } from '../../store/editor-store';
+import { useEditorStore, type FormatType } from '../../store/editor-store';
 import type { TabMLCell } from '../../types/tabml';
 
 interface CellEditorProps {
@@ -34,9 +34,12 @@ export interface CommitActiveCellEditorOptions {
 
 type ActiveCellEditorCommit = (options?: CommitActiveCellEditorOptions) => void;
 type ActiveCellEditorHasChanges = () => boolean;
+type ActiveCellEditorApplyFormat = (format: FormatType) => boolean;
 
 let activeCellEditorCommit: ActiveCellEditorCommit | null = null;
 let activeCellEditorHasChanges: ActiveCellEditorHasChanges | null = null;
+let activeCellEditorHasTextSelection: ActiveCellEditorHasChanges | null = null;
+let activeCellEditorApplyFormat: ActiveCellEditorApplyFormat | null = null;
 
 export function commitActiveCellEditor(options: CommitActiveCellEditorOptions = {}): boolean {
   if (!activeCellEditorCommit) return false;
@@ -46,6 +49,14 @@ export function commitActiveCellEditor(options: CommitActiveCellEditorOptions = 
 
 export function hasActiveCellEditorChanges(): boolean {
   return activeCellEditorHasChanges?.() ?? false;
+}
+
+export function hasActiveCellEditorTextSelection(): boolean {
+  return activeCellEditorHasTextSelection?.() ?? false;
+}
+
+export function applyActiveCellEditorFormat(format: FormatType): boolean {
+  return activeCellEditorApplyFormat?.(format) ?? false;
 }
 
 export function CellEditor({
@@ -135,6 +146,48 @@ export function CellEditor({
     flushEditorDom(editor);
     const newCell = tiptapToCell(editor.getJSON(), cellRef.current);
     return !cellsEqual(newCell, cellRef.current);
+  }, []);
+
+  const hasTextSelection = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) {
+      return false;
+    }
+    return editor.state.selection.from !== editor.state.selection.to;
+  }, []);
+
+  const applySelectionFormat = useCallback((format: FormatType) => {
+    const editor = editorRef.current;
+    if (!editor || editor.isDestroyed) {
+      return false;
+    }
+
+    const { from, to } = editor.state.selection;
+    if (from === to) {
+      return false;
+    }
+
+    const chain = editor.chain().focus().setTextSelection({ from, to });
+
+    if (format === 'bold') {
+      chain.toggleBold().run();
+    } else if (format === 'strikethrough') {
+      chain.toggleMark('tabml-strikethrough').run();
+    } else if (format === 'warning') {
+      chain.toggleMark('tabml-warning').run();
+    } else if (format === 'modified') {
+      chain.toggleMark('tabml-modified').run();
+    } else {
+      const color = format.replace('color-', '');
+      if (editor.isActive('tabml-semantic-color', { color })) {
+        chain.unsetMark('tabml-semantic-color').run();
+      } else {
+        chain.setMark('tabml-semantic-color', { color }).run();
+      }
+    }
+
+    committedRef.current = false;
+    return true;
   }, []);
 
   useEffect(() => {
@@ -278,6 +331,8 @@ export function CellEditor({
   useEffect(() => {
     activeCellEditorCommit = handleCommit;
     activeCellEditorHasChanges = hasUncommittedChanges;
+    activeCellEditorHasTextSelection = hasTextSelection;
+    activeCellEditorApplyFormat = applySelectionFormat;
     return () => {
       if (activeCellEditorCommit === handleCommit) {
         activeCellEditorCommit = null;
@@ -285,8 +340,14 @@ export function CellEditor({
       if (activeCellEditorHasChanges === hasUncommittedChanges) {
         activeCellEditorHasChanges = null;
       }
+      if (activeCellEditorHasTextSelection === hasTextSelection) {
+        activeCellEditorHasTextSelection = null;
+      }
+      if (activeCellEditorApplyFormat === applySelectionFormat) {
+        activeCellEditorApplyFormat = null;
+      }
     };
-  }, [handleCommit, hasUncommittedChanges]);
+  }, [handleCommit, hasUncommittedChanges, hasTextSelection, applySelectionFormat]);
 
   useEffect(() => {
     if (!editing || pendingEditKey == null) return;

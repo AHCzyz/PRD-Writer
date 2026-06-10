@@ -27,7 +27,7 @@ export function markupToTiptapHTML(cell: TabMLCell): string {
 
   // 图片
   if (cell.image) {
-    parts.push(`<img src="${escapeAttr(cell.image.src)}" />`);
+    parts.push(`<img ${renderImageAttrs(cell.image.src, cell.image.width, cell.image.height)} />`);
   }
 
   const html = parts.join('');
@@ -36,9 +36,16 @@ export function markupToTiptapHTML(cell: TabMLCell): string {
 
 function renderInlineToHTML(item: InlineContent): string {
   if (item.type === 'image') {
-    return `<img src="${escapeAttr(item.src)}" />`;
+    return `<img ${renderImageAttrs(item.src, item.width, item.height)} />`;
   }
   return renderTextRunToHTML(item);
+}
+
+function renderImageAttrs(src: string, width?: number, height?: number): string {
+  const attrs = [`src="${escapeAttr(src)}"`];
+  if (width) attrs.push(`width="${width}"`);
+  if (height) attrs.push(`height="${height}"`);
+  return attrs.join(' ');
 }
 
 function renderTextRunToHTML(run: TextRun): string {

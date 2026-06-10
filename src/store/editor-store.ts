@@ -29,6 +29,20 @@ export interface SelectionRange {
   endCol: number;
 }
 
+export interface NormalizedRange {
+  minRow: number;
+  maxRow: number;
+  minCol: number;
+  maxCol: number;
+}
+
+export interface GridClipboard {
+  kind: 'cells' | 'rows' | 'columns';
+  cells: TabMLCell[][];
+  rows?: TabMLRow[];
+  columnWidths?: number[];
+}
+
 /** 标签页数据 */
 export interface Tab {
   id: string;
@@ -61,6 +75,7 @@ export interface EditorStore {
   fontSize: number;
   selectAll: boolean;
   selectionRange: SelectionRange | null;
+  clipboard: GridClipboard | null;
 
   // 标签页操作
   addTab: (filePath?: string, content?: string) => void;
@@ -75,16 +90,20 @@ export interface EditorStore {
   setDocument: (doc: TabMLDocument) => void;
   loadFromText: (text: string) => void;
 
-  // 单元格操作
   updateCell: (row: number, col: number, cell: TabMLCell) => void;
+  clearSelectionContent: () => void;
+  deleteSelection: () => void;
+  copySelection: () => GridClipboard | null;
+  cutSelection: () => GridClipboard | null;
+  pasteClipboard: (row?: number, col?: number) => void;
 
-  // 行操作
   insertRow: (after: number) => void;
+  insertRowsAt: (index: number, count: number) => void;
   deleteRow: (index: number) => void;
   indentRow: (index: number, delta: 1 | -1) => void;
 
-  // 列操作
   addColumn: (rowIndex: number) => void;
+  insertColumnsAt: (index: number, count: number) => void;
   setColumnWidth: (col: number, width: number) => void;
   ensureMinColumns: (rowIndex: number, minCols: number) => void;
 
@@ -225,6 +244,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   pendingEditKey: null,
   selectAll: false,
   selectionRange: null,
+  clipboard: null,
 
   // === 标签页操作 ===
 
@@ -354,6 +374,242 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }));
   },
 
+  clearSelectionContent: () => {
+    const { tabs, activeTabId, selectAll } = get();
+    const active = tabs.find((t) => t.id === activeTabId)!;
+    const range = getActiveRange(active.document, active.focus, active.selectionRange, selectAll);
+    const doc = { ...active.document };
+    const rows = [...doc.rows];
+    let changed = false;
+
+    for (let r = range.minRow; r <= range.maxRow; r++) {
+      const row = rows[r];
+      if (!row || row.isEmpty) continue;
+      const cells = [...row.cells];
+      ensureCells(cells, range.maxCol + 1);
+
+      for (let c = range.minCol; c <= range.maxCol; c++) {
+        if (!isEmptyCell(cells[c])) {
+          cells[c] = createEmptyCell();
+          changed = true;
+        }
+      }
+
+      rows[r] = { ...row, cells };
+    }
+
+    if (!changed) return;
+
+    doc.rows = rows;
+    set(updateActive(tabs, activeTabId, {
+      document: doc,
+      sourceText: serialize(doc),
+      isDirty: true,
+    }));
+  },
+
+  deleteSelection: () => {
+    const { tabs, activeTabId, selectAll } = get();
+    const active = tabs.find((t) => t.id === activeTabId)!;
+    const range = getActiveRange(active.document, active.focus, active.selectionRange, selectAll);
+    const fullRows = isFullRowRange(active.document, range);
+    const fullCols = isFullColumnRange(active.document, range);
+
+    if (fullRows && !fullCols) {
+      const rows = [...active.document.rows];
+      rows.splice(range.minRow, range.maxRow - range.minRow + 1);
+      if (rows.length === 0) {
+        rows.push(createEmptyRow(Math.max(getMaxColumnCount(active.document), DEFAULT_COL_COUNT)));
+      }
+      const doc = { ...active.document, rows };
+      const nextRow = Math.min(range.minRow, rows.length - 1);
+      set(updateActive(tabs, activeTabId, {
+        document: doc,
+        focus: { row: nextRow, col: 0, editing: false },
+        sourceText: serialize(doc),
+        isDirty: true,
+        selectionRange: null,
+      }));
+      return;
+    }
+
+    if (fullCols && !fullRows) {
+      const deleteCount = range.maxCol - range.minCol + 1;
+      const rows = active.document.rows.map((row) => {
+        if (row.isEmpty) return row;
+        const cells = [...row.cells];
+        ensureCells(cells, range.maxCol + 1);
+        cells.splice(range.minCol, deleteCount);
+        if (cells.length === 0) cells.push(createEmptyCell());
+        return { ...row, cells };
+      });
+      const columnWidths = [...active.columnWidths];
+      ensureWidths(columnWidths, range.maxCol + 1);
+      columnWidths.splice(range.minCol, deleteCount);
+      if (columnWidths.length === 0) columnWidths.push(DEFAULT_COLUMN_WIDTH);
+      const doc = withColumnWidths({ ...active.document, rows }, columnWidths);
+      set(updateActive(tabs, activeTabId, {
+        document: doc,
+        columnWidths,
+        focus: { row: 0, col: Math.min(range.minCol, columnWidths.length - 1), editing: false },
+        sourceText: serialize(doc),
+        isDirty: true,
+        selectionRange: null,
+      }));
+      return;
+    }
+
+    get().clearSelectionContent();
+  },
+
+  copySelection: () => {
+    const { tabs, activeTabId, selectAll } = get();
+    const active = tabs.find((t) => t.id === activeTabId);
+    if (!active) return null;
+
+    const range = getActiveRange(active.document, active.focus, active.selectionRange, selectAll);
+    const fullRows = isFullRowRange(active.document, range);
+    const fullCols = isFullColumnRange(active.document, range);
+    const width = range.maxCol - range.minCol + 1;
+
+    let clipboard: GridClipboard;
+
+    if (fullRows && !fullCols) {
+      const rows = active.document.rows
+        .slice(range.minRow, range.maxRow + 1)
+        .map(cloneRow);
+      clipboard = {
+        kind: 'rows',
+        rows,
+        cells: rows.map((row) => row.cells.map(cloneCell)),
+      };
+    } else if (fullCols && !fullRows) {
+      const cells = active.document.rows.map((row) =>
+        Array.from({ length: width }, (_, i) => readCell(row, range.minCol + i))
+      );
+      clipboard = {
+        kind: 'columns',
+        cells,
+        columnWidths: Array.from(
+          { length: width },
+          (_, i) => active.columnWidths[range.minCol + i] ?? DEFAULT_COLUMN_WIDTH
+        ),
+      };
+    } else {
+      const cells: TabMLCell[][] = [];
+      for (let r = range.minRow; r <= range.maxRow; r++) {
+        const row = active.document.rows[r];
+        cells.push(Array.from({ length: width }, (_, i) => readCell(row, range.minCol + i)));
+      }
+      clipboard = { kind: 'cells', cells };
+    }
+
+    set({ clipboard });
+    return clipboard;
+  },
+
+  cutSelection: () => {
+    const clipboard = get().copySelection();
+    if (!clipboard) return null;
+    get().deleteSelection();
+    return clipboard;
+  },
+
+  pasteClipboard: (row, col) => {
+    const { tabs, activeTabId, clipboard } = get();
+    if (!clipboard) return;
+
+    const active = tabs.find((t) => t.id === activeTabId)!;
+    const doc = { ...active.document };
+    let rows = [...doc.rows];
+    const targetRow = clamp(row ?? active.focus.row, 0, rows.length);
+    const targetCol = Math.max(0, col ?? active.focus.col);
+    let columnWidths = [...active.columnWidths];
+
+    if (clipboard.kind === 'rows') {
+      const rowsToInsert = (clipboard.rows || []).map(cloneRow);
+      if (rowsToInsert.length === 0) return;
+      rows.splice(targetRow, 0, ...rowsToInsert);
+      doc.rows = rows;
+      set(updateActive(tabs, activeTabId, {
+        document: doc,
+        focus: { row: targetRow, col: 0, editing: false },
+        sourceText: serialize(doc),
+        isDirty: true,
+      }));
+      return;
+    }
+
+    if (clipboard.kind === 'columns') {
+      const width = Math.max(...clipboard.cells.map((rowCells) => rowCells.length), 0);
+      if (width === 0) return;
+      while (rows.length < clipboard.cells.length) {
+        rows.push(createEmptyRow(Math.max(getMaxColumnCount(doc), DEFAULT_COL_COUNT)));
+      }
+      rows = rows.map((rowItem, rowIndex) => {
+        if (rowItem.isEmpty) return rowItem;
+        const cells = [...rowItem.cells];
+        ensureCells(cells, targetCol);
+        const sourceCells = clipboard.cells[rowIndex] || Array.from({ length: width }, () => createEmptyCell());
+        cells.splice(targetCol, 0, ...sourceCells.map(cloneCell));
+        return { ...rowItem, cells };
+      });
+      ensureWidths(columnWidths, targetCol);
+      columnWidths.splice(
+        targetCol,
+        0,
+        ...(clipboard.columnWidths || Array.from({ length: width }, () => DEFAULT_COLUMN_WIDTH))
+      );
+      doc.rows = rows;
+      const nextDoc = withColumnWidths(doc, columnWidths);
+      set(updateActive(tabs, activeTabId, {
+        document: nextDoc,
+        columnWidths,
+        focus: { row: 0, col: targetCol, editing: false },
+        sourceText: serialize(nextDoc),
+        isDirty: true,
+      }));
+      return;
+    }
+
+    const height = clipboard.cells.length;
+    const width = Math.max(...clipboard.cells.map((rowCells) => rowCells.length), 0);
+    if (height === 0 || width === 0) return;
+
+    const baseCols = Math.max(getMaxColumnCount(doc), columnWidths.length, DEFAULT_COL_COUNT);
+    while (rows.length <= targetRow) {
+      rows.push(createEmptyRow(baseCols));
+    }
+    if (height > 1) {
+      rows.splice(
+        targetRow + 1,
+        0,
+        ...Array.from({ length: height - 1 }, () => createEmptyRow(baseCols))
+      );
+    }
+
+    for (let i = 0; i < height; i++) {
+      const rowIndex = targetRow + i;
+      const rowItem = rows[rowIndex] || createEmptyRow(baseCols);
+      const cells = [...rowItem.cells];
+      ensureCells(cells, targetCol);
+      cells.splice(targetCol, 0, ...clipboard.cells[i].map(cloneCell));
+      rows[rowIndex] = { ...rowItem, isEmpty: false, cells };
+    }
+
+    const maxCols = Math.max(...rows.map((r) => r.cells.length), DEFAULT_COL_COUNT);
+    ensureWidths(columnWidths, maxCols);
+    doc.rows = rows;
+    const nextDoc = withColumnWidths(doc, columnWidths);
+    set(updateActive(tabs, activeTabId, {
+      document: nextDoc,
+      columnWidths,
+      focus: { row: targetRow, col: targetCol, editing: false },
+      sourceText: serialize(nextDoc),
+      isDirty: true,
+    }));
+  },
+
   // === 行操作 ===
 
   insertRow: (after) => {
@@ -372,6 +628,28 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     set(updateActive(tabs, activeTabId, {
       document: doc,
       focus: { row: after + 1, col: 0, editing: false },
+      sourceText: serialize(doc),
+      isDirty: true,
+    }));
+  },
+
+  insertRowsAt: (index, count) => {
+    const safeCount = Math.max(1, Math.floor(count));
+    const { tabs, activeTabId } = get();
+    const active = tabs.find((t) => t.id === activeTabId)!;
+    const doc = { ...active.document };
+    const rows = [...doc.rows];
+    const insertAt = clamp(index, 0, rows.length);
+    const maxCols = Math.max(getMaxColumnCount(active.document), active.columnWidths.length, DEFAULT_COL_COUNT);
+    rows.splice(
+      insertAt,
+      0,
+      ...Array.from({ length: safeCount }, () => createEmptyRow(maxCols))
+    );
+    doc.rows = rows;
+    set(updateActive(tabs, activeTabId, {
+      document: doc,
+      focus: { row: insertAt, col: 0, editing: false },
       sourceText: serialize(doc),
       isDirty: true,
     }));
@@ -435,6 +713,33 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }));
   },
 
+  insertColumnsAt: (index, count) => {
+    const safeCount = Math.max(1, Math.floor(count));
+    const { tabs, activeTabId } = get();
+    const active = tabs.find((t) => t.id === activeTabId)!;
+    const doc = { ...active.document };
+    const rows = active.document.rows.map((row) => {
+      if (row.isEmpty) return row;
+      const cells = [...row.cells];
+      const insertAt = clamp(index, 0, cells.length);
+      ensureCells(cells, insertAt);
+      cells.splice(insertAt, 0, ...Array.from({ length: safeCount }, () => createEmptyCell()));
+      return { ...row, cells };
+    });
+    const columnWidths = [...active.columnWidths];
+    const insertAt = clamp(index, 0, columnWidths.length);
+    ensureWidths(columnWidths, insertAt);
+    columnWidths.splice(insertAt, 0, ...Array.from({ length: safeCount }, () => DEFAULT_COLUMN_WIDTH));
+    const nextDoc = withColumnWidths({ ...doc, rows }, columnWidths);
+    set(updateActive(tabs, activeTabId, {
+      document: nextDoc,
+      columnWidths,
+      focus: { row: 0, col: insertAt, editing: false },
+      sourceText: serialize(nextDoc),
+      isDirty: true,
+    }));
+  },
+
   setColumnWidth: (col, width) => {
     const { tabs, activeTabId } = get();
     const active = tabs.find((t) => t.id === activeTabId)!;
@@ -490,37 +795,58 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   setPendingEditKey: (key) => set({ pendingEditKey: key }),
   clearPendingEditKey: () => set({ pendingEditKey: null }),
 
-  setSelectAll: (val) => set({ selectAll: val, selectionRange: null }),
+  setSelectAll: (val) => {
+    const { tabs, activeTabId } = get();
+    set({
+      ...updateActive(tabs, activeTabId, { selectionRange: null }),
+      selectAll: val,
+    });
+  },
 
-  setSelectionRange: (range) => set({ selectionRange: range, selectAll: false }),
+  setSelectionRange: (range) => {
+    const { tabs, activeTabId } = get();
+    set({
+      ...updateActive(tabs, activeTabId, { selectionRange: range }),
+      selectAll: false,
+    });
+  },
 
   selectRow: (rowIndex) => {
-    const { document } = get();
+    const { tabs, activeTabId, document } = get();
     const maxCol = Math.max(...document.rows.map((r) => r.cells.length), DEFAULT_COL_COUNT) - 1;
+    const selectionRange = { startRow: rowIndex, startCol: 0, endRow: rowIndex, endCol: maxCol };
     set({
-      selectionRange: { startRow: rowIndex, startCol: 0, endRow: rowIndex, endCol: maxCol },
+      ...updateActive(tabs, activeTabId, { selectionRange }),
       selectAll: false,
     });
   },
 
   selectColumn: (colIndex) => {
-    const { document } = get();
+    const { tabs, activeTabId, document } = get();
+    const selectionRange = { startRow: 0, startCol: colIndex, endRow: document.rows.length - 1, endCol: colIndex };
     set({
-      selectionRange: { startRow: 0, startCol: colIndex, endRow: document.rows.length - 1, endCol: colIndex },
+      ...updateActive(tabs, activeTabId, { selectionRange }),
       selectAll: false,
     });
   },
 
   selectAllCells: () => {
-    const { document } = get();
+    const { tabs, activeTabId, document } = get();
     const maxCol = Math.max(...document.rows.map((r) => r.cells.length), DEFAULT_COL_COUNT) - 1;
+    const selectionRange = { startRow: 0, startCol: 0, endRow: document.rows.length - 1, endCol: maxCol };
     set({
-      selectionRange: { startRow: 0, startCol: 0, endRow: document.rows.length - 1, endCol: maxCol },
+      ...updateActive(tabs, activeTabId, { selectionRange }),
       selectAll: false,
     });
   },
 
-  clearSelection: () => set({ selectionRange: null, selectAll: false }),
+  clearSelection: () => {
+    const { tabs, activeTabId } = get();
+    set({
+      ...updateActive(tabs, activeTabId, { selectionRange: null }),
+      selectAll: false,
+    });
+  },
 
   // === 格式操作 ===
 
@@ -710,4 +1036,112 @@ function computeColumnWidths(doc: TabMLDocument): number[] {
   }
   while (widths.length < maxCols) widths.push(DEFAULT_COLUMN_WIDTH);
   return widths;
+}
+
+function getActiveRange(
+  doc: TabMLDocument,
+  focus: CellFocus,
+  range: SelectionRange | null,
+  selectAll: boolean
+): NormalizedRange {
+  if (selectAll) {
+    return {
+      minRow: 0,
+      maxRow: Math.max(0, doc.rows.length - 1),
+      minCol: 0,
+      maxCol: Math.max(0, getMaxColumnCount(doc) - 1),
+    };
+  }
+
+  const source = range || {
+    startRow: focus.row,
+    startCol: focus.col,
+    endRow: focus.row,
+    endCol: focus.col,
+  };
+
+  const maxRow = Math.max(0, doc.rows.length - 1);
+  return {
+    minRow: clamp(Math.min(source.startRow, source.endRow), 0, maxRow),
+    maxRow: clamp(Math.max(source.startRow, source.endRow), 0, maxRow),
+    minCol: Math.max(0, Math.min(source.startCol, source.endCol)),
+    maxCol: Math.max(0, Math.max(source.startCol, source.endCol)),
+  };
+}
+
+function isFullRowRange(doc: TabMLDocument, range: NormalizedRange): boolean {
+  return range.minCol === 0 && range.maxCol >= getMaxColumnCount(doc) - 1;
+}
+
+function isFullColumnRange(doc: TabMLDocument, range: NormalizedRange): boolean {
+  return range.minRow === 0 && range.maxRow >= doc.rows.length - 1;
+}
+
+function getMaxColumnCount(doc: TabMLDocument): number {
+  return Math.max(...doc.rows.map((row) => row.cells.length), DEFAULT_COL_COUNT);
+}
+
+function readCell(row: TabMLRow | undefined, col: number): TabMLCell {
+  if (!row || row.isEmpty || !row.cells[col]) {
+    return createEmptyCell();
+  }
+  return cloneCell(row.cells[col]);
+}
+
+function cloneRow(row: TabMLRow): TabMLRow {
+  return {
+    ...row,
+    cells: row.cells.map(cloneCell),
+  };
+}
+
+function cloneCell(cell: TabMLCell): TabMLCell {
+  return {
+    ...cell,
+    content: cell.content.map((item) => {
+      if (item.type === 'text') {
+        return {
+          ...item,
+          marks: item.marks?.map((mark) => ({ ...mark })) as Mark[] | undefined,
+        };
+      }
+      return { ...item };
+    }),
+    image: cell.image ? { ...cell.image } : undefined,
+  };
+}
+
+function ensureCells(cells: TabMLCell[], count: number): void {
+  while (cells.length < count) {
+    cells.push(createEmptyCell());
+  }
+}
+
+function ensureWidths(widths: number[], count: number): void {
+  while (widths.length < count) {
+    widths.push(DEFAULT_COLUMN_WIDTH);
+  }
+}
+
+function isEmptyCell(cell: TabMLCell | undefined): boolean {
+  if (!cell) return true;
+  if (cell.heading || cell.todo || cell.image) return false;
+  return cell.content.every((item) => {
+    if (item.type === 'image') return false;
+    return item.text.length === 0 && (!item.marks || item.marks.length === 0);
+  });
+}
+
+function withColumnWidths(doc: TabMLDocument, columnWidths: number[]): TabMLDocument {
+  return {
+    ...doc,
+    frontmatter: {
+      ...doc.frontmatter,
+      columnWidths,
+    },
+  };
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
