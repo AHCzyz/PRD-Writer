@@ -47,10 +47,9 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
 
     // Browse-mode cell selection should not start native text selection.
     e.preventDefault();
-    // 正在编辑别的格子 → 先提交旧格子
-    if (currentFocus.editing && (currentFocus.row !== rowIndex || currentFocus.col !== colIndex)) {
-      commitActiveCellEditor();
-      sf({ row: currentFocus.row, col: currentFocus.col, editing: false });
+    // 当前聚焦格可能在浏览态接收了 IME 输入，切格前统一尝试提交。
+    if (currentFocus.row !== rowIndex || currentFocus.col !== colIndex) {
+      commitActiveCellEditor({ keepEditing: true, force: true });
     }
     // 设置当前单元格焦点（浏览模式）
     sf({ row: rowIndex, col: colIndex, editing: false });
@@ -61,11 +60,10 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
   }, [rowIndex, colIndex, setFocus]);
 
   const handleClick = useCallback(() => {
-    const { focus: currentFocus, setFocus: sf } = useEditorStore.getState();
-    // 正在编辑别的格子 → 先保存旧格子
-    if (currentFocus.editing && (currentFocus.row !== rowIndex || currentFocus.col !== colIndex)) {
-      commitActiveCellEditor();
-      sf({ row: currentFocus.row, col: currentFocus.col, editing: false });
+    const { focus: currentFocus } = useEditorStore.getState();
+    // 当前聚焦格可能在浏览态接收了 IME 输入，切格前统一尝试提交。
+    if (currentFocus.row !== rowIndex || currentFocus.col !== colIndex) {
+      commitActiveCellEditor({ keepEditing: true, force: true });
     }
     // 当前格子正在编辑 → 不干扰（拖拽选文本后的 click 事件也会到这里）
     if (currentFocus.editing && currentFocus.row === rowIndex && currentFocus.col === colIndex) {

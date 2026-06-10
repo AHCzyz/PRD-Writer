@@ -65,15 +65,24 @@ export default function Grid() {
       // 右键/中键不选
       if (e.button !== 0) return;
       e.preventDefault();
+      const state = useEditorStore.getState();
+      const currentFocus = state.focus;
+      const switchingCell = currentFocus.row !== rowIdx || currentFocus.col !== colIdx;
+      if (currentFocus.editing && !switchingCell) {
+        return;
+      }
+      if (switchingCell) {
+        commitActiveCellEditor({ keepEditing: true, force: true });
+      }
       dragRef.current = { dragging: true, startRow: rowIdx, startCol: colIdx };
-      useEditorStore.getState().setSelectionRange({
+      state.setSelectionRange({
         startRow: rowIdx,
         startCol: colIdx,
         endRow: rowIdx,
         endCol: colIdx,
       });
       // 同时设置 focus
-      useEditorStore.getState().setFocus({ row: rowIdx, col: colIdx, editing: false });
+      state.setFocus({ row: rowIdx, col: colIdx, editing: false });
     },
     []
   );
@@ -144,7 +153,6 @@ export default function Grid() {
 
     const handleMouseDown = (e: MouseEvent) => {
       const { focus: f } = useEditorStore.getState();
-      if (!f.editing) return;
       if (isToolbarInteracting()) return;
 
       const target = e.target as HTMLElement;
@@ -154,8 +162,7 @@ export default function Grid() {
       if (editingCell && editingCell.contains(target)) return;
       if (target.closest('.floating-toolbar')) return;
 
-      commitActiveCellEditor();
-      useEditorStore.getState().setFocus({ row: f.row, col: f.col, editing: false });
+      commitActiveCellEditor({ keepEditing: true, force: true });
     };
 
     window.document.addEventListener('mousedown', handleMouseDown);
@@ -167,10 +174,8 @@ export default function Grid() {
     (e: React.MouseEvent) => {
       if (e.target === gridRef.current || e.target === tableRef.current) {
         const { focus: f } = useEditorStore.getState();
-        if (f.editing) {
-          commitActiveCellEditor();
-          setFocus({ row: f.row, col: f.col, editing: false });
-        }
+        commitActiveCellEditor({ force: true });
+        setFocus({ row: f.row, col: f.col, editing: false });
       }
     },
     [setFocus]
@@ -192,9 +197,7 @@ export default function Grid() {
       e.stopPropagation();
 
       const state = useEditorStore.getState();
-      if (state.focus.editing) {
-        commitActiveCellEditor();
-      }
+      commitActiveCellEditor({ keepEditing: true, force: true });
 
       const selected =
         state.selectAll || isInSelection(state.selectionRange, row, col);

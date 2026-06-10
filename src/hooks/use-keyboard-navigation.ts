@@ -6,6 +6,7 @@
  */
 import { useCallback, useEffect } from 'react';
 import { useEditorStore } from '../store/editor-store';
+import { commitActiveCellEditor, hasActiveCellEditorChanges } from '../components/cell/CellEditor';
 
 export function useKeyboardNavigation() {
   const deleteRow = useEditorStore((s) => s.deleteRow);
@@ -14,6 +15,9 @@ export function useKeyboardNavigation() {
 
   // 使用 getState() 避免闭包问题 — handler 始终读取最新 focus
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (e.defaultPrevented && target?.closest('.cell-editor')) return;
+
     const { focus, document, setFocus, setPendingEditKey, selectAll, selectionRange, selectAllCells, clearSelection } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
@@ -51,6 +55,7 @@ export function useKeyboardNavigation() {
     switch (e.key) {
       case 'Tab': {
         e.preventDefault();
+        commitActiveCellEditor({ keepEditing: true, force: true });
         if (e.shiftKey) {
           if (col === 0) {
             indentRow(row, -1);
@@ -75,6 +80,7 @@ export function useKeyboardNavigation() {
       case 'Enter': {
         // Enter = 移到下一行（Excel 风格）
         e.preventDefault();
+        commitActiveCellEditor({ keepEditing: true, force: true });
         if (row < rows.length - 1) {
           let targetRow = row + 1;
           while (targetRow < rows.length && rows[targetRow].isEmpty) targetRow++;
@@ -88,6 +94,7 @@ export function useKeyboardNavigation() {
 
       case 'ArrowUp': {
         e.preventDefault();
+        commitActiveCellEditor({ keepEditing: true, force: true });
         if (row > 0) {
           let targetRow = row - 1;
           while (targetRow >= 0 && rows[targetRow].isEmpty) targetRow--;
@@ -101,6 +108,7 @@ export function useKeyboardNavigation() {
 
       case 'ArrowDown': {
         e.preventDefault();
+        commitActiveCellEditor({ keepEditing: true, force: true });
         if (row < rows.length - 1) {
           let targetRow = row + 1;
           while (targetRow < rows.length && rows[targetRow].isEmpty) targetRow++;
@@ -115,6 +123,7 @@ export function useKeyboardNavigation() {
       case 'ArrowLeft': {
         if (col > 0) {
           e.preventDefault();
+          commitActiveCellEditor({ keepEditing: true, force: true });
           setFocus({ row, col: col - 1, editing: false });
         }
         break;
@@ -123,6 +132,7 @@ export function useKeyboardNavigation() {
       case 'ArrowRight': {
         if (col < totalCols - 1) {
           e.preventDefault();
+          commitActiveCellEditor({ keepEditing: true, force: true });
           setFocus({ row, col: col + 1, editing: false });
         }
         break;
@@ -156,6 +166,10 @@ export function useKeyboardNavigation() {
         // 选中即可输入：可打印字符 → 进入编辑模式，替换内容
         // IME 输入时不拦截，让 Tiptap 自然处理
         if (isPrintableKey(e)) {
+          if (hasActiveCellEditorChanges()) {
+            setFocus({ row, col, editing: true });
+            return;
+          }
           e.preventDefault();
           setPendingEditKey(e.key);
           setFocus({ row, col, editing: true });

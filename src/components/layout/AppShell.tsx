@@ -21,9 +21,7 @@ export default function AppShell() {
   const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const commitEditingCell = useCallback(() => {
-    if (useEditorStore.getState().focus.editing) {
-      commitActiveCellEditor({ keepEditing: true });
-    }
+    commitActiveCellEditor({ keepEditing: true, force: true });
   }, []);
 
   const saveTab = useCallback(async (tab: Tab): Promise<boolean> => {
