@@ -2,13 +2,38 @@
   "name": "prd-writer",
   "private": true,
   "version": "0.1.0",
+  "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "electron:dev": "vite build && electron .",
+    "electron:build": "vite build && electron-builder --win"
+  },
+  "build": {
+    "appId": "com.prdwriter.app",
+    "productName": "PRD Writer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "electron/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "PRD Writer"
+    }
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -22,9 +47,12 @@
     "zustand": "^5.0.5"
   },
   "devDependencies": {
+    "@electron/packager": "^20.0.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.4.1",
+    "electron": "^42.4.0",
+    "electron-builder": "^26.15.2",
     "typescript": "~5.7.2",
     "vite": "^6.3.5",
     "vitest": "^3.2.4"
