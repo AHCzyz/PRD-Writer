@@ -13,6 +13,8 @@ export default function TopToolbar() {
   const showGridLines = useEditorStore((s) => s.showGridLines);
   const sourceText = useEditorStore((s) => s.sourceText);
   const applyFormat = useEditorStore((s) => s.applyFormat);
+  const fontSize = useEditorStore((s) => s.fontSize);
+  const setFontSize = useEditorStore((s) => s.setFontSize);
 
   if (viewMode !== 'wysiwyg') return null;
 
@@ -150,8 +152,31 @@ export default function TopToolbar() {
         >
           ⊞
         </button>
-        <button className="toolbar-btn" onClick={copySource} title="复制 Tab-ML 源码">
+        <button className="toolbar-btn" onClick={copySource} title="复制源码">
           📋
+        </button>
+      </div>
+
+      <div className="toolbar-divider" />
+
+      {/* 字号 */}
+      <div className="toolbar-group">
+        <button
+          className="toolbar-btn"
+          onClick={() => setFontSize(fontSize - 1)}
+          title="缩小字号"
+          disabled={fontSize <= 10}
+        >
+          A-
+        </button>
+        <span className="font-size-display">{fontSize}px</span>
+        <button
+          className="toolbar-btn"
+          onClick={() => setFontSize(fontSize + 1)}
+          title="放大字号"
+          disabled={fontSize >= 32}
+        >
+          A+
         </button>
       </div>
     </div>

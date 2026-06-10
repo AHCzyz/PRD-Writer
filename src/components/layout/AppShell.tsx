@@ -1,58 +1,147 @@
 /**
  * 应用主布局
  */
-import { useEffect } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import Grid from '../grid/Grid';
 import TopToolbar from '../toolbar/TopToolbar';
 import ModeToggle from '../layout/ModeToggle';
-import { useEditorStore } from '../../store/editor-store';
+import TabBar from '../tabs/TabBar';
+import { useEditorStore, type Tab } from '../../store/editor-store';
 import SourceView from '../source/SourceView';
 import { openFile, saveFile } from '../../core/io/file-handler';
-
-const DEMO_DOCUMENT = `---
-title: 搜索功能 PRD
-author: 产品团队
-modified: 2026-06-09
-columns: [需求, 描述, 优先级, 状态]
-columnWidths: [160, 400, 80, 100]
----
-# 搜索功能 PRD
-## 1. 背景与目标
-\t当前搜索体验差，[red]用户流失严重[/red]\tP0\t!!紧急!!
-\t提升搜索准确率和速度\tP0\t未开始
-
-## 2. 需求列表
-\t[ ] 全文搜索\t++新增++ [green]基于 ES 实现[/green]\tP0
-\t[ ] 搜索建议\t[blue]API: /api/suggest[/blue]\tP1
-\t[x] 搜索历史记录\t已完成
-\t\t[x] 本地存储方案\t[gray]后续可能迁移到云端[/gray]
-\t[?] AI 语义搜索\t待评估\tP2
-
-## 3. 参考
-[blue]接口文档 v2.3[/blue]\t~~旧版设计~~ [red]需重新评估[/red]
-`;
+import { commitActiveCellEditor } from '../cell/CellEditor';
 
 export default function AppShell() {
   const viewMode = useEditorStore((s) => s.viewMode);
-  const loadFromText = useEditorStore((s) => s.loadFromText);
-  const sourceText = useEditorStore((s) => s.sourceText);
   const focus = useEditorStore((s) => s.focus);
   const document = useEditorStore((s) => s.document);
+  const openFileOrReplace = useEditorStore((s) => s.openFileOrReplace);
 
-  // 启动时加载示例文档
+  const [autoSave, setAutoSave] = useState(false);
+  const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const commitEditingCell = useCallback(() => {
+    if (useEditorStore.getState().focus.editing) {
+      commitActiveCellEditor({ keepEditing: true });
+    }
+  }, []);
+
+  const saveTab = useCallback(async (tab: Tab): Promise<boolean> => {
+    const api = (window as any).electronAPI;
+    const state = useEditorStore.getState();
+
+    if (tab.filePath && api?.saveFileToPath) {
+      const ok = await api.saveFileToPath(tab.sourceText, tab.filePath);
+      if (ok) {
+        state.markTabDirty(tab.id, false);
+      }
+      return Boolean(ok);
+    }
+
+    const defaultName = tab.filePath
+      ? tab.filePath.split(/[/\\]/).pop() || 'document.prd'
+      : 'document.prd';
+
+    if (api?.saveFile) {
+      const filePath = await api.saveFile(tab.sourceText, defaultName);
+      if (!filePath) return false;
+      state.setTabFilePath(tab.id, filePath);
+      state.markTabDirty(tab.id, false);
+      return true;
+    }
+
+    const saved = await saveFile(tab.sourceText, defaultName);
+    if (saved) {
+      state.markTabDirty(tab.id, false);
+    }
+    return saved;
+  }, []);
+
+  const saveDirtyTabs = useCallback(async (): Promise<boolean> => {
+    commitEditingCell();
+    const dirtyTabs = useEditorStore.getState().tabs.filter((t) => t.isDirty);
+    for (const tab of dirtyTabs) {
+      const ok = await saveTab(tab);
+      if (!ok) return false;
+    }
+    return true;
+  }, [commitEditingCell, saveTab]);
+
+  const handleSave = useCallback(async (): Promise<boolean> => {
+    commitEditingCell();
+    const state = useEditorStore.getState();
+    const activeTab = state.tabs.find((t) => t.id === state.activeTabId);
+    if (!activeTab) return false;
+    return saveTab(activeTab);
+  }, [commitEditingCell, saveTab]);
+
   useEffect(() => {
-    loadFromText(DEMO_DOCUMENT);
-  }, [loadFromText]);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleSave]);
+
+  useEffect(() => {
+    if (autoSaveTimerRef.current) {
+      clearInterval(autoSaveTimerRef.current);
+      autoSaveTimerRef.current = null;
+    }
+    if (autoSave) {
+      autoSaveTimerRef.current = setInterval(() => {
+        const state = useEditorStore.getState();
+        const activeTab = state.tabs.find((t) => t.id === state.activeTabId);
+        if (activeTab?.isDirty && activeTab?.filePath) {
+          void handleSave();
+        }
+      }, 30000);
+    }
+    return () => {
+      if (autoSaveTimerRef.current) {
+        clearInterval(autoSaveTimerRef.current);
+      }
+    };
+  }, [autoSave, handleSave]);
+
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (!api?.onCloseRequest) return;
+
+    return api.onCloseRequest(async () => {
+      commitEditingCell();
+      const dirtyCount = useEditorStore.getState().tabs.filter((t) => t.isDirty).length;
+      if (dirtyCount === 0) return true;
+
+      const action = api.confirmUnsavedClose
+        ? await api.confirmUnsavedClose(dirtyCount)
+        : window.confirm('有未保存的修改，是否保存后关闭？')
+          ? 'save'
+          : 'discard';
+
+      if (action === 'save') return saveDirtyTabs();
+      if (action === 'discard') return true;
+      return false;
+    });
+  }, [commitEditingCell, saveDirtyTabs]);
+
+  useEffect(() => {
+    const api = (window as any).electronAPI;
+    if (api?.onOpenFileFromOS) {
+      api.onOpenFileFromOS((data: { path: string; content: string }) => {
+        openFileOrReplace(data.path, data.content);
+      });
+    }
+  }, [openFileOrReplace]);
 
   const handleOpen = async () => {
     const result = await openFile();
     if (result) {
-      loadFromText(result.content);
+      openFileOrReplace(result.name, result.content);
     }
-  };
-
-  const handleSave = async () => {
-    await saveFile(sourceText, 'document.tab.md');
   };
 
   const currentRow = document.rows[focus.row];
@@ -65,12 +154,21 @@ export default function AppShell() {
           <h1 className="app-title">PRD Writer</h1>
           <ModeToggle />
           <div className="file-actions">
-            <button className="toolbar-btn" onClick={handleOpen}>📂 打开</button>
-            <button className="toolbar-btn" onClick={handleSave}>💾 保存</button>
+            <button className="toolbar-btn" onClick={handleOpen}>打开</button>
+            <button className="toolbar-btn" onClick={() => void handleSave()}>保存</button>
+            <label className="auto-save-label">
+              <input
+                type="checkbox"
+                checked={autoSave}
+                onChange={(e) => setAutoSave(e.target.checked)}
+              />
+              自动保存
+            </label>
           </div>
         </div>
         <TopToolbar />
       </header>
+      <TabBar />
       <main className="app-main">
         {viewMode === 'wysiwyg' ? <Grid /> : <SourceView />}
       </main>
@@ -89,8 +187,8 @@ export default function AppShell() {
         </span>
         <span className="status-spacer" />
         <span className="status-item status-hints">
-          <kbd>Tab</kbd> 下一格 <kbd>Enter</kbd> 下一行 <kbd>Shift+Enter</kbd> 格内换行{' '}
-          <kbd>Ctrl+B</kbd> 粗体 <kbd>/</kbd> 命令
+          <kbd>Ctrl+S</kbd> 保存 <kbd>Tab</kbd> 下一格 <kbd>Enter</kbd> 下一行{' '}
+          <kbd>Shift+Enter</kbd> 格内换行 <kbd>Ctrl+B</kbd> 粗体 <kbd>/</kbd> 命令
         </span>
       </footer>
     </div>

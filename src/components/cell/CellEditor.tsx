@@ -18,7 +18,8 @@ import type { TabMLCell } from '../../types/tabml';
 
 interface CellEditorProps {
   cell: TabMLCell;
-  onCommit: (newCell: TabMLCell) => void;
+  editing: boolean;
+  onCommit: (newCell: TabMLCell, options?: { keepEditing?: boolean }) => void;
   onCancel: () => void;
   onTabNext: () => void;
   onTabPrev: () => void;
@@ -26,8 +27,20 @@ interface CellEditorProps {
   onArrowDown: () => void;
 }
 
+const COMMIT_ACTIVE_CELL_EDITOR_EVENT = 'prd:commit-active-cell-editor';
+
+export interface CommitActiveCellEditorOptions {
+  keepEditing?: boolean;
+}
+
+export function commitActiveCellEditor(options: CommitActiveCellEditorOptions = {}) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(COMMIT_ACTIVE_CELL_EDITOR_EVENT, { detail: options }));
+}
+
 export function CellEditor({
   cell,
+  editing,
   onCommit,
   onCancel,
   onTabNext,
@@ -39,20 +52,50 @@ export function CellEditor({
   const wrapperRef = useRef<HTMLDivElement>(null);
   const committedRef = useRef(false);
   const editorRef = useRef<Editor | null>(null);
+  const cellRef = useRef(cell);
+  const handlersRef = useRef({
+    onCommit,
+    onCancel,
+    onTabNext,
+    onTabPrev,
+    onArrowUp,
+    onArrowDown,
+  });
   const [editorInstance, setEditorInstance] = useState<Editor | null>(null);
 
-  const handleCommit = useCallback(() => {
+  useEffect(() => {
+    cellRef.current = cell;
+  }, [cell]);
+
+  useEffect(() => {
+    handlersRef.current = {
+      onCommit,
+      onCancel,
+      onTabNext,
+      onTabPrev,
+      onArrowUp,
+      onArrowDown,
+    };
+  }, [onCommit, onCancel, onTabNext, onTabPrev, onArrowUp, onArrowDown]);
+
+  useEffect(() => {
+    if (editing) {
+      committedRef.current = false;
+    }
+  }, [editing]);
+
+  const handleCommit = useCallback((options?: CommitActiveCellEditorOptions) => {
     if (committedRef.current) return;
     committedRef.current = true;
     const editor = editorRef.current;
     if (editor && !editor.isDestroyed) {
       const json = editor.getJSON();
-      const newCell = tiptapToCell(json, cell);
-      onCommit(newCell);
+      const newCell = tiptapToCell(json, cellRef.current);
+      handlersRef.current.onCommit(newCell, options);
     } else {
-      onCommit(cell);
+      handlersRef.current.onCommit(cellRef.current, options);
     }
-  }, [cell, onCommit]);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -72,20 +115,23 @@ export function CellEditor({
       extensions: getCellEditorExtensions(),
       autofocus: 'end',
       editable: true,
+      onUpdate: () => {
+        committedRef.current = false;
+      },
       editorProps: {
         handleKeyDown: (_view, event) => {
           // Enter = 提交并换行到下一格（Excel 风格）
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault();
             handleCommit();
-            onArrowDown();
+            handlersRef.current.onArrowDown();
             return true;
           }
 
           if (event.key === 'Escape') {
             event.preventDefault();
             committedRef.current = true;
-            onCancel();
+            handlersRef.current.onCancel();
             return true;
           }
 
@@ -93,9 +139,9 @@ export function CellEditor({
             event.preventDefault();
             handleCommit();
             if (event.shiftKey) {
-              onTabPrev();
+              handlersRef.current.onTabPrev();
             } else {
-              onTabNext();
+              handlersRef.current.onTabNext();
             }
             return true;
           }
@@ -103,14 +149,14 @@ export function CellEditor({
           if (event.key === 'ArrowUp' && isAtStart(editor)) {
             event.preventDefault();
             handleCommit();
-            onArrowUp();
+            handlersRef.current.onArrowUp();
             return true;
           }
 
           if (event.key === 'ArrowDown' && isAtEnd(editor)) {
             event.preventDefault();
             handleCommit();
-            onArrowDown();
+            handlersRef.current.onArrowDown();
             return true;
           }
 
@@ -131,6 +177,13 @@ export function CellEditor({
             // 这确保即使 React 随后卸载编辑器，内容也已保存到 store
             if (!committedRef.current) {
               handleCommit();
+            }
+            return false;
+          },
+          contextmenu: (_view, event: Event) => {
+            const mouseEvent = event as MouseEvent;
+            if (!editor.state.selection.empty) {
+              mouseEvent.preventDefault();
             }
             return false;
           },
@@ -162,12 +215,26 @@ export function CellEditor({
     editorRef.current = editor;
     setEditorInstance(editor);
 
+    const handleCommitRequest = (event: Event) => {
+      const detail = (event as CustomEvent<CommitActiveCellEditorOptions>).detail || {};
+      handleCommit(detail);
+    };
+    window.addEventListener(COMMIT_ACTIVE_CELL_EDITOR_EVENT, handleCommitRequest);
+
     return () => {
+      window.removeEventListener(COMMIT_ACTIVE_CELL_EDITOR_EVENT, handleCommitRequest);
       editor.destroy();
       editorRef.current = null;
       setEditorInstance(null);
     };
   }, []); // 只在挂载时初始化一次
+
+  // 非编辑模式时，将编辑器内容重置为 store 数据（撤销浏览模式下的意外修改）
+  useEffect(() => {
+    if (!editing && editorRef.current && !editorRef.current.isDestroyed) {
+      editorRef.current.commands.setContent(markupToTiptapHTML(cell), false);
+    }
+  }, [editing, cell]);
 
   return (
     <div className="cell-editor" ref={wrapperRef}>

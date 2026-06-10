@@ -1,28 +1,52 @@
 /**
- * 单行渲染
+ * 单行渲染 — 行号头 + 数据格子 + 选区高亮
  */
 import type { TabMLRow } from '../../types/tabml';
 import { useEditorStore } from '../../store/editor-store';
 import Cell from '../cell/Cell';
-import { INDENT_WIDTH, SEPARATOR_HEIGHT } from '../../constants/format';
+import { INDENT_WIDTH } from '../../constants/format';
 import { createEmptyCell } from '../../types/tabml';
 
 interface GridRowProps {
   row: TabMLRow;
   rowIndex: number;
+  onCellMouseDown: (rowIdx: number, colIdx: number, e: React.MouseEvent) => void;
+  onCellMouseEnter: (rowIdx: number, colIdx: number) => void;
+  isCellSelected: (row: number, col: number) => boolean;
+  isRowSelected: boolean;
+  onRowHeaderClick: (rowIdx: number) => void;
 }
 
-export default function GridRow({ row, rowIndex }: GridRowProps) {
+export default function GridRow({
+  row,
+  rowIndex,
+  onCellMouseDown,
+  onCellMouseEnter,
+  isCellSelected,
+  isRowSelected,
+  onRowHeaderClick,
+}: GridRowProps) {
   const columnWidths = useEditorStore((s) => s.columnWidths);
   const focus = useEditorStore((s) => s.focus);
+  const selectAll = useEditorStore((s) => s.selectAll);
 
-  // 空行 = 分隔符
+  // 空行 = 分隔符（渲染为正常空行，保证可见高度与列区分）
   if (row.isEmpty) {
     return (
-      <tr className="grid-separator-row" style={{ height: SEPARATOR_HEIGHT }}>
-        <td colSpan={columnWidths.length} className="grid-separator">
-          <div className="separator-line" />
+      <tr className="grid-row" data-row-index={rowIndex}>
+        <td className="row-header-cell">
+          <span className="row-header-label">{rowIndex + 1}</span>
         </td>
+        {Array.from({ length: columnWidths.length }).map((_, colIdx) => (
+          <td
+            key={colIdx}
+            className={`grid-cell`}
+            onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
+            onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
+          >
+            <Cell cell={createEmptyCell()} rowIndex={rowIndex} colIndex={colIdx} />
+          </td>
+        ))}
       </tr>
     );
   }
@@ -31,29 +55,43 @@ export default function GridRow({ row, rowIndex }: GridRowProps) {
 
   return (
     <tr className="grid-row" data-row-index={rowIndex}>
-      {row.cells.map((cell, colIdx) => (
-        <td
-          key={colIdx}
-          className={`grid-cell ${
-            focus.row === rowIndex && focus.col === colIdx ? 'cell-focused' : ''
-          }`}
-          style={{
-            paddingLeft: colIdx === 0 ? indentPx + 8 : 8,
-          }}
-        >
-          <Cell cell={cell} rowIndex={rowIndex} colIndex={colIdx} />
-        </td>
-      ))}
-      {/* 如果此行列数少于总列数，补空列 — 但可交互 */}
+      {/* 行号头 */}
+      <td
+        className={`row-header-cell ${isRowSelected ? 'header-active' : ''}`}
+        onClick={() => onRowHeaderClick(rowIndex)}
+      >
+        <span className="row-header-label">{rowIndex + 1}</span>
+      </td>
+      {/* 数据格子 */}
+      {row.cells.map((cell, colIdx) => {
+        const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
+        const isFocused = focus.row === rowIndex && focus.col === colIdx;
+        return (
+          <td
+            key={colIdx}
+            className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+            style={{
+              paddingLeft: colIdx === 0 ? indentPx + 4 : 4,
+            }}
+            onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
+            onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
+          >
+            <Cell cell={cell} rowIndex={rowIndex} colIndex={colIdx} />
+          </td>
+        );
+      })}
+      {/* 补空列 */}
       {row.cells.length < columnWidths.length &&
         Array.from({ length: columnWidths.length - row.cells.length }).map((_, i) => {
           const colIdx = row.cells.length + i;
+          const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
+          const isFocused = focus.row === rowIndex && focus.col === colIdx;
           return (
             <td
               key={`empty-${colIdx}`}
-              className={`grid-cell ${
-                focus.row === rowIndex && focus.col === colIdx ? 'cell-focused' : ''
-              }`}
+              className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+              onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
+              onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
             >
               <Cell
                 cell={createEmptyCell()}

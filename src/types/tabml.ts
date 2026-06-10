@@ -67,19 +67,22 @@ export interface CellFocus {
   editing: boolean;
 }
 
-/** 空文档工厂 */
-export function createEmptyDocument(): TabMLDocument {
+/** 空文档工厂 — 默认 50行 × 10列 */
+export function createEmptyDocument(
+  rowCount = 50,
+  colCount = 10
+): TabMLDocument {
   return {
     frontmatter: {},
-    rows: [createEmptyRow()],
+    rows: Array.from({ length: rowCount }, () => createEmptyRow(colCount)),
   };
 }
 
 /** 空行工厂 */
-export function createEmptyRow(): TabMLRow {
+export function createEmptyRow(colCount = 1): TabMLRow {
   return {
     indent: 0,
-    cells: [createEmptyCell()],
+    cells: Array.from({ length: colCount }, () => createEmptyCell()),
     isEmpty: false,
   };
 }

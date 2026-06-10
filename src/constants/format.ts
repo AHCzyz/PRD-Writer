@@ -26,9 +26,9 @@ export const SHORTCUTS = {
   modified: 'Ctrl+Shift+M',
 } as const;
 
-/** 默认列宽 (px) */
-export const DEFAULT_COLUMN_WIDTH = 200;
-export const MIN_COLUMN_WIDTH = 60;
+/** 默认列宽 (px) — 4.5个中文字宽度 (14px * 4.5 = 63px) */
+export const DEFAULT_COLUMN_WIDTH = 63;
+export const MIN_COLUMN_WIDTH = 40;
 export const MAX_COLUMN_WIDTH = 800;
 
 /** 缩进宽度 (px per level) */
@@ -37,8 +37,17 @@ export const INDENT_WIDTH = 24;
 /** 空行分隔符高度 (px) */
 export const SEPARATOR_HEIGHT = 12;
 
-/** 默认行高 (px) */
-export const DEFAULT_ROW_HEIGHT = 32;
+/** 默认行高 (px) — 1行字高 (14px * 1.5 行高 + 4px padding) */
+export const DEFAULT_ROW_HEIGHT = 25;
+
+/** 默认字号 (px) */
+export const DEFAULT_FONT_SIZE = 14;
+export const MIN_FONT_SIZE = 10;
+export const MAX_FONT_SIZE = 32;
+
+/** 默认行数/列数 */
+export const DEFAULT_ROW_COUNT = 50;
+export const DEFAULT_COL_COUNT = 10;
 
 /** 防抖时间 (ms) */
 export const DEBOUNCE_EDIT = 300;

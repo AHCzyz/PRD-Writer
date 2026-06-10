@@ -14,10 +14,27 @@ export function useKeyboardNavigation() {
 
   // 使用 getState() 避免闭包问题 — handler 始终读取最新 focus
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    const { focus, document, setFocus, setPendingEditKey } = useEditorStore.getState();
+    const { focus, document, setFocus, setPendingEditKey, selectAll, selectionRange, selectAllCells, clearSelection } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
     const currentRow = rows[row];
+
+    // Ctrl+A = 全选/取消全选
+    if (e.key === 'a' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (selectAll || selectionRange) {
+        clearSelection();
+      } else {
+        selectAllCells();
+      }
+      return;
+    }
+
+    // 任何非修饰键操作取消选区
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) {
+      if (selectAll || selectionRange) clearSelection();
+    }
+
     if (!currentRow || currentRow.isEmpty) return;
 
     const totalCols = currentRow.cells.length;
@@ -137,6 +154,7 @@ export function useKeyboardNavigation() {
 
       default: {
         // 选中即可输入：可打印字符 → 进入编辑模式，替换内容
+        // IME 输入时不拦截，让 Tiptap 自然处理
         if (isPrintableKey(e)) {
           e.preventDefault();
           setPendingEditKey(e.key);
@@ -151,15 +169,56 @@ export function useKeyboardNavigation() {
     const el = document.querySelector('.grid-container');
     if (!el) return;
     el.addEventListener('keydown', handleKeyDown as EventListener);
-    return () => el.removeEventListener('keydown', handleKeyDown as EventListener);
+
+    // IME 输入开始（拼音、日文等）
+    // 如果当前不在编辑模式 → 进入编辑模式但不注入 key
+    // 如果已在编辑模式（keydown 先于 compositionstart）→ 清除误插的英文字母
+    const handleCompositionStart = () => {
+      const { focus: f, setFocus: sf, pendingEditKey, clearPendingEditKey } = useEditorStore.getState();
+      if (!f.editing) {
+        // keydown 尚未触发或已被跳过 → 直接进入编辑模式，不设置 pendingKey
+        // 后续 IME 组合键将自然流入 CellEditor
+        sf({ row: f.row, col: f.col, editing: true });
+      } else if (pendingEditKey) {
+        // keydown 先于 compositionstart 触发了，误插了英文字母
+        // 清除 pendingKey 并从编辑器中删除该字符
+        clearPendingEditKey();
+        requestAnimationFrame(() => {
+          const pmEl = window.document.querySelector('.cell-editor-content .ProseMirror');
+          if (pmEl) {
+            // ProseMirror 在 dom 上附加了 view 引用
+            const view = (pmEl as any).pmView;
+            if (view && !view.destroyed) {
+              const { state } = view;
+              const { from } = state.selection;
+              if (from > 0) {
+                // 删除光标前的一个字符（误插的英文字母）
+                const tr = state.tr.delete(from - 1, from);
+                view.dispatch(tr);
+              }
+            }
+          }
+        });
+      }
+    };
+    el.addEventListener('compositionstart', handleCompositionStart);
+
+    return () => {
+      el.removeEventListener('keydown', handleKeyDown as EventListener);
+      el.removeEventListener('compositionstart', handleCompositionStart);
+    };
   }, [handleKeyDown]);
 }
 
 /**
- * 判断是否为可打印字符键
+ * 判断是否为可打印字符键（排除 IME 输入）
  */
 function isPrintableKey(e: KeyboardEvent): boolean {
   if (e.ctrlKey || e.altKey || e.metaKey) return false;
+  // IME 正在处理组合输入 → 不拦截
+  if (e.isComposing || e.keyCode === 229) return false;
+  // Chromium 对 IME 处理中的按键返回 'Process'
+  if (e.key === 'Process') return false;
   return e.key.length === 1;
 }
 

@@ -5,8 +5,12 @@
 
 const FILE_TYPES = [
   {
+    description: 'PRD 文档',
+    accept: { 'text/plain': ['.prd'] },
+  },
+  {
     description: 'Tab-ML 文档',
-    accept: { 'text/plain': ['.tab.md', '.prd'] },
+    accept: { 'text/plain': ['.tab.md'] },
   },
 ];
 
@@ -39,7 +43,7 @@ export async function openFile(): Promise<{ name: string; content: string } | nu
  */
 export async function saveFile(
   content: string,
-  suggestedName: string = 'untitled.tab.md'
+  suggestedName: string = 'untitled.prd'
 ): Promise<boolean> {
   try {
     if ('showSaveFilePicker' in window) {
@@ -69,7 +73,7 @@ function openFileFallback(): Promise<{ name: string; content: string } | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.tab.md,.prd,.txt';
+    input.accept = '.prd,.tab.md,.txt';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) {

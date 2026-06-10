@@ -14,8 +14,8 @@ describe('Tab-ML Parser/Serializer Round-trip', () => {
     { input: '# 一级标题', desc: 'heading 1' },
     { input: '## 二级标题', desc: 'heading 2' },
     { input: '### 三级标题', desc: 'heading 3' },
-    { input: '\t缩进行\t内容', desc: 'indented row (1 level)' },
-    { input: '\t\t二级缩进\t内容', desc: 'indented row (2 levels)' },
+    { input: '  缩进行\t内容', desc: 'indented row (1 level)' },
+    { input: '    二级缩进\t内容', desc: 'indented row (2 levels)' },
     { input: '![](images/photo.png =400x300)', desc: 'image with size' },
     { input: '[green]补充说明[/green]\t[gray]次要信息[/gray]', desc: 'multiple semantic colors' },
     { input: '**~~粗体删除线~~**\tnormal', desc: 'nested marks' },
@@ -52,11 +52,11 @@ describe('Tab-ML Parser/Serializer Round-trip', () => {
       '---',
       '# 标题',
       '## 子标题',
-      '\t需求A\tP0\t进行中',
-      '\t需求B\tP1\t未开始',
+      '  需求A\tP0\t进行中',
+      '  需求B\tP1\t未开始',
       '',
-      '\t[x] 已完成',
-      '\t[ ] 未完成',
+      '  [x] 已完成',
+      '  [ ] 未完成',
     ].join('\n');
     const doc = parse(input);
     const output = serialize(doc);

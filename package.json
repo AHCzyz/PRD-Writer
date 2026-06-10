@@ -23,6 +23,15 @@
       "dist/**/*",
       "electron/**/*"
     ],
+    "fileAssociations": [
+      {
+        "ext": "prd",
+        "name": "PRD Document",
+        "description": "PRD Writer Document",
+        "icon": "electron/icon.png",
+        "role": "Editor"
+      }
+    ],
     "win": {
       "target": "nsis",
       "icon": "electron/icon.png"
@@ -32,7 +41,9 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "PRD Writer"
+      "shortcutName": "PRD Writer",
+      "perMachine": true,
+      "include": "build/installer.nsh"
     }
   },
   "dependencies": {

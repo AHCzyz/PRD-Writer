@@ -1,8 +1,10 @@
 /**
  * SlashCommand 斜杠命令弹窗
  * 在单元格输入 "/" 时弹出命令菜单
+ * 使用 createPortal 渲染到 body，避免被父级 overflow 裁剪
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import type { Editor } from '@tiptap/core';
 
 interface SlashCommandProps {
@@ -103,6 +105,7 @@ export function SlashCommand({ editor }: SlashCommandProps) {
   const [visible, setVisible] = useState(false);
   const [query, setQuery] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const listRef = useRef<HTMLDivElement>(null);
   const slashPosRef = useRef<number>(-1);
 
@@ -113,7 +116,17 @@ export function SlashCommand({ editor }: SlashCommandProps) {
       const { from } = editor.state.selection;
       const textBefore = getTextBefore(editor, from);
 
+      const updatePosition = () => {
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          const rect = range.getBoundingClientRect();
+          setPosition({ top: rect.bottom + 4, left: rect.left });
+        }
+      };
+
       if (textBefore.endsWith('/')) {
+        updatePosition();
         setVisible(true);
         setQuery('');
         setSelectedIndex(0);
@@ -124,6 +137,7 @@ export function SlashCommand({ editor }: SlashCommandProps) {
       // 检查是否在斜杠命令中
       const slashMatch = textBefore.match(/\/([a-zA-Z\u4e00-\u9fff]*)$/);
       if (slashMatch) {
+        updatePosition();
         setVisible(true);
         setQuery(slashMatch[1].toLowerCase());
         setSelectedIndex(0);
@@ -208,8 +222,12 @@ export function SlashCommand({ editor }: SlashCommandProps) {
   const filtered = filteredCommands();
   if (filtered.length === 0) return null;
 
-  return (
-    <div ref={listRef} className="slash-command-popup">
+  return createPortal(
+    <div
+      ref={listRef}
+      className="slash-command-popup"
+      style={{ position: 'fixed', top: position.top, left: position.left }}
+    >
       {filtered.map((cmd, i) => (
         <div
           key={cmd.key}
@@ -224,7 +242,8 @@ export function SlashCommand({ editor }: SlashCommandProps) {
           <span className="slash-command-desc">{cmd.description}</span>
         </div>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 

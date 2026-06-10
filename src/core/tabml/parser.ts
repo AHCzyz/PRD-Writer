@@ -76,15 +76,15 @@ function parseRow(line: string): TabMLRow {
     return { indent: 0, cells: [], isEmpty: true };
   }
 
-  // 计算行首缩进（tab 数量）
+  // 计算行首缩进：空格缩进（2空格 = 1级），tab 仅用于分列
   let indent = 0;
   let content = line;
-  while (content.startsWith('\t') && indent < 4) {
+  while (content.startsWith('  ') && indent < 4) {
     indent++;
-    content = content.slice(1);
+    content = content.slice(2);
   }
 
-  // 按 \t 分割列
+  // 按 \t 分割列（不再读取前导 tab 作为缩进，避免与空列冲突）
   const cellStrings = content.split('\t');
   const cells = cellStrings.map((s) => parseCell(s));
 

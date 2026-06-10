@@ -77,6 +77,23 @@ body,
   display: flex;
   gap: 4px;
   margin-left: 8px;
+  align-items: center;
+}
+
+.auto-save-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+  margin-left: 4px;
+  user-select: none;
+}
+
+.auto-save-label input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
 }
 
 /* === Mode Toggle === */
@@ -161,6 +178,10 @@ body,
   outline: none;
 }
 
+.grid-container.resizing {
+  cursor: col-resize;
+}
+
 .grid-table {
   width: max-content;
   min-width: 100%;
@@ -173,11 +194,18 @@ body,
   border: 1px solid var(--color-border);
 }
 
+.show-grid .row-header-cell,
+.show-grid .grid-col-header {
+  border: 1px solid var(--color-border);
+}
+
 .grid-cell {
-  padding: 4px 8px;
+  padding: 2px 4px;
   vertical-align: top;
-  min-height: 32px;
+  min-height: var(--cell-line-height, 21px);
   position: relative;
+  font-size: var(--cell-font-size, 14px);
+  user-select: none;
 }
 
 .grid-cell.cell-focused {
@@ -186,8 +214,114 @@ body,
   z-index: 1;
 }
 
+.grid-cell.cell-selected {
+  background-color: #dbeafe;
+}
+
 .grid-cell-empty {
   /* 空格子不再灰底，与正常格子一致 */
+}
+
+/* === 行列头 === */
+.row-header-col {
+  width: var(--row-header-width, 36px);
+}
+
+.row-header-cell {
+  width: var(--row-header-width, 36px);
+  min-width: var(--row-header-width, 36px);
+  max-width: var(--row-header-width, 36px);
+  background: #f5f5f5;
+  text-align: center;
+  vertical-align: middle;
+  padding: 0 2px;
+  font-size: 11px;
+  color: #666;
+  user-select: none;
+  cursor: pointer;
+  position: sticky;
+  left: 0;
+  z-index: 2;
+}
+
+.row-header-cell:hover,
+.row-header-cell.header-active {
+  background: #d4e4f7;
+  color: #1a5296;
+}
+
+.row-header-label {
+  pointer-events: none;
+}
+
+.grid-header-row {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.grid-col-header {
+  background: #f5f5f5;
+  text-align: center;
+  vertical-align: middle;
+  padding: 2px 0;
+  font-size: 11px;
+  font-weight: normal;
+  color: #666;
+  height: 22px;
+  user-select: none;
+  cursor: pointer;
+  position: relative;
+  overflow: visible;
+}
+
+.grid-col-header:hover,
+.grid-col-header.header-active {
+  background: #d4e4f7;
+  color: #1a5296;
+}
+
+.col-header-label {
+  pointer-events: none;
+}
+
+.grid-corner-cell {
+  background: #e8e8e8;
+  text-align: center;
+  vertical-align: middle;
+  cursor: pointer;
+  width: var(--row-header-width, 36px);
+  min-width: var(--row-header-width, 36px);
+  position: sticky;
+  left: 0;
+  z-index: 4;
+}
+
+.grid-corner-cell:hover,
+.grid-corner-cell.header-active {
+  background: #b8cfe8;
+}
+
+.corner-icon {
+  font-size: 14px;
+  color: #888;
+  pointer-events: none;
+}
+
+/* 列宽拖拽手柄（在 th 内部右侧） */
+.col-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 10;
+}
+
+.col-resize-handle:hover {
+  background: var(--color-border-focus);
+  opacity: 0.4;
 }
 
 /* 标题行样式 — 默认字号统一，仅用加粗+前缀区分 */
@@ -220,6 +354,11 @@ body,
   cursor: pointer;
 }
 
+.grid-add-row .row-header-cell {
+  background: transparent;
+  border: none !important;
+}
+
 .grid-add-row:hover {
   background: var(--color-hover);
 }
@@ -231,8 +370,9 @@ body,
 
 /* === Cell === */
 .cell-wrapper {
-  min-height: 24px;
-  line-height: 1.5;
+  min-height: var(--cell-line-height, 21px);
+  line-height: var(--cell-line-height, 21px);
+  font-size: var(--cell-font-size, 14px);
   outline: none;
   word-break: break-word;
 }
@@ -241,32 +381,41 @@ body,
   /* focus 样式由 cell-focused td 处理 */
 }
 
+/* 浏览模式：阻止 contenteditable 抢夺鼠标交互 */
+.cell-browse-mode .cell-editor-content .ProseMirror {
+  user-select: none;
+  cursor: default;
+}
+
 .cell-renderer {
   min-height: 24px;
 }
 
 .cell-editor {
-  min-height: 24px;
+  position: relative;
+  min-height: var(--cell-line-height, 21px);
   outline: none;
   border: 1px solid var(--color-border-focus);
   border-radius: 2px;
-  padding: 2px 4px;
-  margin: -2px -4px;
+  padding: 1px 3px;
+  margin: -1px -3px;
   background: white;
-  line-height: 1.5;
+  line-height: var(--cell-line-height, 21px);
+  font-size: var(--cell-font-size, 14px);
 }
 
 /* Tiptap / ProseMirror 基础样式 */
 .cell-editor-content .ProseMirror {
   outline: none;
   padding: 0;
-  min-height: 20px;
+  min-height: var(--cell-line-height, 21px);
+  font-size: var(--cell-font-size, 14px);
 }
 
 .cell-editor-content .ProseMirror p {
   margin: 0;
   padding: 0;
-  line-height: 1.5;
+  line-height: var(--cell-line-height, 21px);
 }
 
 .cell-editor-content .ProseMirror > * + * {
@@ -356,27 +505,11 @@ body,
 
 /* === Column Resizer === */
 .column-resizers {
-  position: absolute;
-  top: 0;
-  left: 0;
-  height: 100%;
-  pointer-events: none;
+  display: none;
 }
 
 .column-resize-handle {
-  position: absolute;
-  top: 0;
-  width: 6px;
-  height: 100%;
-  cursor: col-resize;
-  pointer-events: auto;
-  z-index: 10;
-}
-
-.column-resize-handle:hover,
-.column-resize-handle.dragging {
-  background: var(--color-border-focus);
-  opacity: 0.3;
+  display: none;
 }
 
 /* === Source View === */
@@ -441,12 +574,21 @@ body,
 .toolbar-color-blue:hover { background: #eff6ff; }
 .toolbar-color-gray:hover { background: #f3f4f6; }
 
+/* === Font Size Display === */
+.font-size-display {
+  display: inline-block;
+  min-width: 40px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: #4b5563;
+  padding: 2px 4px;
+  user-select: none;
+}
+
 /* === Slash Command Popup === */
 .slash-command-popup {
-  position: absolute;
-  top: 100%;
-  left: 8px;
-  z-index: 100;
+  z-index: 99999;
   min-width: 200px;
   max-width: 300px;
   background: #fff;
@@ -454,7 +596,6 @@ body,
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   padding: 4px;
-  margin-top: 4px;
 }
 
 .slash-command-item {
@@ -545,6 +686,119 @@ body,
 
 .tabml-image:hover {
   border-color: var(--color-border-focus);
+}
+
+/* === Tab Bar === */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  background: #f3f4f6;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 4px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  min-height: 36px;
+}
+
+.tab-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  flex: 1;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 13px;
+  color: #6b7280;
+  white-space: nowrap;
+  transition: all 0.15s;
+  min-width: 80px;
+  max-width: 180px;
+  user-select: none;
+}
+
+.tab-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--color-text);
+}
+
+.tab-item.tab-active {
+  background: white;
+  color: var(--color-text);
+  border-bottom-color: var(--color-border-focus);
+}
+
+.tab-title {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.tab-dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #3b82f6;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.tab-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  color: #9ca3af;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.1s;
+}
+
+.tab-close-btn:hover {
+  background: rgba(0, 0, 0, 0.1);
+  color: #ef4444;
+}
+
+.tab-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 18px;
+  color: #9ca3af;
+  margin-left: 4px;
+  transition: all 0.1s;
+  flex-shrink: 0;
+}
+
+.tab-add-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--color-text);
 }
 
 /* === Status Bar === */

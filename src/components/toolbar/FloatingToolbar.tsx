@@ -64,9 +64,25 @@ export function FloatingToolbar({ editor, cellEl }: FloatingToolbarProps) {
       setVisible(true);
     };
 
+    const handleContextMenu = (e: MouseEvent) => {
+      if (editor.isDestroyed) return;
+
+      const { selection } = editor.state;
+      if (selection.from === selection.to) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      setPosition({
+        top: Math.max(8, e.clientY - 44),
+        left: Math.max(8, e.clientX - 140),
+      });
+      setVisible(true);
+    };
+
     // 不使用 blur 事件隐藏工具栏 — 仅靠 selectionUpdate
     editor.on('selectionUpdate', updateToolbar);
     editor.on('focus', updateToolbar);
+    cellEl.addEventListener('contextmenu', handleContextMenu);
 
     // 全局 mousedown：如果点在其他地方，隐藏工具栏
     const handleGlobalMouseDown = (e: MouseEvent) => {
@@ -80,6 +96,7 @@ export function FloatingToolbar({ editor, cellEl }: FloatingToolbarProps) {
     return () => {
       editor.off('selectionUpdate', updateToolbar);
       editor.off('focus', updateToolbar);
+      cellEl.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('mousedown', handleGlobalMouseDown);
     };
   }, [editor, cellEl]);

@@ -1,12 +1,14 @@
 /**
  * Cell 单元格组件
- * 双状态：editing=false → CellRenderer, editing=true → CellEditor
+ * 聚焦单元格始终挂载 CellEditor（修复 IME 首次按键问题）
+ * editing=false → editor editable 但网格层拦截普通按键
+ * editing=true  → editor 完全接管输入
  */
 import { useCallback } from 'react';
 import type { TabMLCell } from '../../types/tabml';
 import { useEditorStore } from '../../store/editor-store';
 import CellRenderer from './CellRenderer';
-import { CellEditor } from './CellEditor';
+import { CellEditor, commitActiveCellEditor } from './CellEditor';
 
 interface CellProps {
   cell: TabMLCell;
@@ -24,6 +26,35 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
 
   const isEditing = focus.row === rowIndex && focus.col === colIndex && focus.editing;
   const isFocused = focus.row === rowIndex && focus.col === colIndex;
+  // 聚焦的单元格始终挂载 CellEditor，确保 contenteditable 存在以支持 IME
+  const showEditor = isFocused;
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+
+    const target = e.target as HTMLElement;
+    const { focus: currentFocus, setFocus: sf } = useEditorStore.getState();
+
+    if (
+      currentFocus.editing &&
+      currentFocus.row === rowIndex &&
+      currentFocus.col === colIndex &&
+      target.closest('.cell-editor')
+    ) {
+      e.stopPropagation();
+      return;
+    }
+
+    // Browse-mode cell selection should not start native text selection.
+    e.preventDefault();
+    // 正在编辑别的格子 → 先提交旧格子
+    if (currentFocus.editing && (currentFocus.row !== rowIndex || currentFocus.col !== colIndex)) {
+      commitActiveCellEditor();
+      sf({ row: currentFocus.row, col: currentFocus.col, editing: false });
+    }
+    // 设置当前单元格焦点（浏览模式）
+    sf({ row: rowIndex, col: colIndex, editing: false });
+  }, [rowIndex, colIndex]);
 
   const handleDoubleClick = useCallback(() => {
     setFocus({ row: rowIndex, col: colIndex, editing: true });
@@ -33,6 +64,7 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
     const { focus: currentFocus, setFocus: sf } = useEditorStore.getState();
     // 正在编辑别的格子 → 先保存旧格子
     if (currentFocus.editing && (currentFocus.row !== rowIndex || currentFocus.col !== colIndex)) {
+      commitActiveCellEditor();
       sf({ row: currentFocus.row, col: currentFocus.col, editing: false });
     }
     // 当前格子正在编辑 → 不干扰（拖拽选文本后的 click 事件也会到这里）
@@ -43,9 +75,11 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
   }, [rowIndex, colIndex, setFocus]);
 
   const handleCommit = useCallback(
-    (newCell: TabMLCell) => {
+    (newCell: TabMLCell, options?: { keepEditing?: boolean }) => {
       updateCell(rowIndex, colIndex, newCell);
-      setFocus({ row: rowIndex, col: colIndex, editing: false });
+      if (!options?.keepEditing) {
+        setFocus({ row: rowIndex, col: colIndex, editing: false });
+      }
     },
     [rowIndex, colIndex, updateCell, setFocus]
   );
@@ -106,16 +140,18 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
 
   return (
     <div
-      className={`cell-wrapper ${isFocused ? 'cell-wrapper-focused' : ''}`}
+      className={`cell-wrapper ${isFocused ? 'cell-wrapper-focused' : ''} ${isFocused && !isEditing ? 'cell-browse-mode' : ''}`}
       data-row={rowIndex}
       data-col={colIndex}
+      onMouseDown={handleMouseDown}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       tabIndex={isFocused ? 0 : -1}
     >
-      {isEditing ? (
+      {showEditor ? (
         <CellEditor
           cell={cell}
+          editing={isEditing}
           onCommit={handleCommit}
           onCancel={handleCancel}
           onTabNext={handleTabNext}

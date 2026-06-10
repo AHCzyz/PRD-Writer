@@ -56,9 +56,18 @@ function serializeFrontmatter(fm: Record<string, unknown>): string {
 function serializeRow(row: TabMLRow): string {
   if (row.isEmpty) return '';
 
-  const indentStr = '\t'.repeat(row.indent);
+  // 缩进用空格（2空格/级），保留 tab 仅用于分列
+  const indentStr = '  '.repeat(row.indent);
   const cellStrs = row.cells.map((c) => serializeCell(c));
-  return indentStr + cellStrs.join('\t');
+  let joined = cellStrs.join('\t');
+
+  // 全空单元格时输出 tab 分隔，保证解析时仍是数据行
+  if (joined === '') {
+    const numCols = Math.max(row.cells.length, 1);
+    joined = Array(numCols).fill('').join('\t');
+  }
+
+  return indentStr + joined;
 }
 
 /**
