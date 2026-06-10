@@ -2,6 +2,7 @@
  * CellEditor — Tiptap 富文本单元格编辑器
  * Enter = 换行格子、Tab = 下一列、Shift+Enter = 格内换行
  * 从 store 读取 pendingEditKey 实现选中即替换
+ * blur 同步提交：Grid mousedown 已在 blur 前执行，保证内容不丢失
  */
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { Editor } from '@tiptap/core';
@@ -122,16 +123,15 @@ export function CellEditor({
             if (relatedTarget?.closest('.floating-toolbar')) {
               return false;
             }
-            // 工具栏正在被交互（mousedown 拦截了焦点）→ 不提交
+            // 工具栏正在被交互（mousedown preventDefault 保持了焦点）→ 不提交
             if (isToolbarInteracting()) {
               return false;
             }
-            // 延迟提交，让 click 事件先处理
-            setTimeout(() => {
-              if (!committedRef.current && !isToolbarInteracting()) {
-                handleCommit();
-              }
-            }, 120);
+            // 同步提交 — Grid 的 mousedown handler 已在 blur 之前执行
+            // 这确保即使 React 随后卸载编辑器，内容也已保存到 store
+            if (!committedRef.current) {
+              handleCommit();
+            }
             return false;
           },
           paste: (_view, event: ClipboardEvent) => {
