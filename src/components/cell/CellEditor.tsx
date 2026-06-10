@@ -14,7 +14,7 @@ import { FloatingToolbar } from '../toolbar/FloatingToolbar';
 import { isToolbarInteracting } from '../toolbar/FloatingToolbar';
 import { SlashCommand } from '../toolbar/SlashCommand';
 import { useEditorStore, type FormatType } from '../../store/editor-store';
-import type { TabMLCell } from '../../types/tabml';
+import { getCellText, type TabMLCell } from '../../types/tabml';
 
 interface CellEditorProps {
   cell: TabMLCell;
@@ -267,6 +267,16 @@ export function CellEditor({
         handleDOMEvents: {
           keydown: (_view, event: Event) => {
             const keyboardEvent = event as KeyboardEvent;
+            if (
+              !editingRef.current &&
+              (keyboardEvent.key === 'Delete' || keyboardEvent.key === 'Backspace')
+            ) {
+              keyboardEvent.preventDefault();
+              keyboardEvent.stopPropagation();
+              handleBrowseDeleteKey(keyboardEvent.key);
+              return true;
+            }
+
             if (keyboardEvent.key !== 'Enter') {
               return false;
             }
@@ -427,4 +437,26 @@ function isAtEnd(editor: Editor): boolean {
   const { to } = selection;
   const resolvedPos = editor.state.doc.resolve(to);
   return resolvedPos.parentOffset === resolvedPos.parent.content.size;
+}
+
+function handleBrowseDeleteKey(key: string): void {
+  const {
+    focus,
+    document,
+    selectionRange,
+    selectAll,
+    clearSelectionContent,
+    deleteRow,
+  } = useEditorStore.getState();
+  const currentRow = document.rows[focus.row];
+  if (!currentRow || currentRow.isEmpty) return;
+
+  const cell = currentRow.cells[focus.col];
+  const cellIsEmpty = (!cell || getCellText(cell) === '') && !cell?.image;
+  if (!selectionRange && !selectAll && cellIsEmpty && focus.col === 0 && key === 'Backspace') {
+    deleteRow(focus.row);
+    return;
+  }
+
+  clearSelectionContent();
 }
