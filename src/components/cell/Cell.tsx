@@ -30,10 +30,14 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
   }, [rowIndex, colIndex, setFocus]);
 
   const handleClick = useCallback(() => {
-    // 如果当前正在编辑别的格子，先保存（退出编辑）
     const { focus: currentFocus, setFocus: sf } = useEditorStore.getState();
+    // 正在编辑别的格子 → 先保存旧格子
     if (currentFocus.editing && (currentFocus.row !== rowIndex || currentFocus.col !== colIndex)) {
       sf({ row: currentFocus.row, col: currentFocus.col, editing: false });
+    }
+    // 当前格子正在编辑 → 不干扰（拖拽选文本后的 click 事件也会到这里）
+    if (currentFocus.editing && currentFocus.row === rowIndex && currentFocus.col === colIndex) {
+      return;
     }
     setFocus({ row: rowIndex, col: colIndex, editing: false });
   }, [rowIndex, colIndex, setFocus]);
