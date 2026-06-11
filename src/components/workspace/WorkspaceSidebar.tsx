@@ -3,10 +3,8 @@ import { useEditorStore } from '../../store/editor-store';
 import {
   openWorkspace,
   readWorkspaceFile,
-  readWorkspaceFileData,
 } from '../../core/io/file-handler';
 import {
-  isWorkspaceExcelPath,
   type WorkspaceDescriptor,
   type WorkspaceNode,
 } from '../../core/workspace/workspace-tree';
@@ -92,13 +90,8 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
 
     setLoadingPath(node.path);
     try {
-      if (isWorkspaceExcelPath(node.path)) {
-        const data = await readWorkspaceFileData(node.path);
-        await openWorkspaceExcel(node, data);
-      } else {
-        const content = await readWorkspaceFile(node.path);
-        openFileOrReplace(node.path, content);
-      }
+      const content = await readWorkspaceFile(node.path);
+      openFileOrReplace(node.path, content);
     } catch (err) {
       console.error('Failed to open workspace file:', err);
       window.alert('打开工作区文件失败');
@@ -266,19 +259,4 @@ function flattenDirectoryPaths(nodes: WorkspaceNode[]): string[] {
     }
   }
   return result;
-}
-
-async function openWorkspaceExcel(node: WorkspaceNode, data: ArrayBuffer) {
-  if (node.kind !== 'file') return;
-  const { importExcelWorkbook } = await import('../../core/excel/importer');
-  const sheets = importExcelWorkbook(data);
-  useEditorStore.getState().openImportedDocuments(
-    sheets.map((sheet) => ({
-      title: `${node.name} - ${sheet.name}`,
-      document: sheet.document,
-      columnWidths: sheet.columnWidths,
-      filePath: null,
-      isDirty: true,
-    }))
-  );
 }

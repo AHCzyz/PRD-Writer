@@ -7,10 +7,12 @@ import TopToolbar from '../toolbar/TopToolbar';
 import { useEditorStore, type Tab } from '../../store/editor-store';
 import {
   openExcelFile,
+  openExcelFolder,
   openFile,
   saveFile,
   saveWorkspaceFile,
 } from '../../core/io/file-handler';
+import { isSaveShortcut } from '../../core/keyboard/shortcuts';
 import { commitActiveCellEditor } from '../cell/CellEditor';
 import WorkspaceSidebar from '../workspace/WorkspaceSidebar';
 
@@ -86,13 +88,14 @@ export default function AppShell() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (isSaveShortcut(e)) {
         e.preventDefault();
+        e.stopPropagation();
         void handleSave();
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [handleSave]);
 
   useEffect(() => {
@@ -157,23 +160,40 @@ export default function AppShell() {
     const result = await openExcelFile();
     if (!result) return;
 
+    await importExcelFiles([result]);
+  };
+
+  const handleImportExcelFolder = async () => {
+    const files = await openExcelFolder();
+    if (!files) return;
+    if (files.length === 0) {
+      window.alert('未找到可导入的 Excel 文件');
+      return;
+    }
+
+    await importExcelFiles(files);
+  };
+
+  const importExcelFiles = async (files: Array<{ name: string; data: ArrayBuffer; path?: string }>) => {
     try {
       const { importExcelWorkbook } = await import('../../core/excel/importer');
-      const sheets = importExcelWorkbook(result.data);
-      if (sheets.length === 0) {
-        window.alert('未找到可导入的工作表');
-        return;
-      }
-
-      openImportedDocuments(
-        sheets.map((sheet) => ({
-          title: importedSheetTitle(result.name, sheet.name, sheets.length),
+      const importedItems = files.flatMap((file) => {
+        const sheets = importExcelWorkbook(file.data);
+        return sheets.map((sheet) => ({
+          title: importedSheetTitle(file.path || file.name, sheet.name, sheets.length),
           document: sheet.document,
           columnWidths: sheet.columnWidths,
           filePath: null,
           isDirty: true,
-        }))
-      );
+        }));
+      });
+
+      if (importedItems.length === 0) {
+        window.alert('未找到可导入的工作表');
+        return;
+      }
+
+      openImportedDocuments(importedItems);
     } catch (err) {
       console.error('Failed to import Excel file:', err);
       window.alert('Excel 导入失败，请确认文件未损坏');
@@ -190,6 +210,7 @@ export default function AppShell() {
           <h1 className="app-title">PRD Writer</h1>
           <div className="file-actions">
             <button className="toolbar-btn" onClick={() => void handleImportExcel()}>导入Excel</button>
+            <button className="toolbar-btn" onClick={() => void handleImportExcelFolder()}>批量导入Excel</button>
             <button className="toolbar-btn" onClick={handleOpen}>打开</button>
             <button className="toolbar-btn" onClick={() => void handleSave()}>保存</button>
             <label className="auto-save-label">

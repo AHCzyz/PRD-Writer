@@ -24,7 +24,7 @@ export interface WorkspaceEntry {
   path: string;
 }
 
-const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md', '.txt', '.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
+const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md'];
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'release']);
 
 interface MutableDirectory {
@@ -37,11 +37,6 @@ interface MutableDirectory {
 export function isWorkspaceDocumentPath(path: string): boolean {
   const normalized = path.toLowerCase();
   return DOCUMENT_EXTENSIONS.some((ext) => normalized.endsWith(ext));
-}
-
-export function isWorkspaceExcelPath(path: string): boolean {
-  const normalized = path.toLowerCase();
-  return ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'].some((ext) => normalized.endsWith(ext));
 }
 
 export function createWorkspaceTreeFromPaths(rootPath: string, filePaths: string[]): WorkspaceNode[] {

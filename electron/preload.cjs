@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('electronAPI', {
   openFile: () => ipcRenderer.invoke('file:open'),
+  openExcelFolder: () => ipcRenderer.invoke('excel:open-folder'),
   openWorkspace: () => ipcRenderer.invoke('workspace:open'),
   readWorkspaceFile: (filePath) => ipcRenderer.invoke('workspace:read-file', filePath),
   readWorkspaceFileData: (filePath) => ipcRenderer.invoke('workspace:read-file-data', filePath),

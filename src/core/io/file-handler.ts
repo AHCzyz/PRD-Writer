@@ -19,6 +19,10 @@ const FILE_TYPES = [
     description: 'Tab-ML 文档',
     accept: { 'text/plain': ['.tab.md'] },
   },
+  {
+    description: 'Markdown',
+    accept: { 'text/markdown': ['.md'] },
+  },
 ];
 
 const EXCEL_FILE_TYPES = [
@@ -34,11 +38,24 @@ const EXCEL_FILE_TYPES = [
   },
 ];
 
+const EXCEL_IMPORT_EXTENSIONS = ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
+
 const browserWorkspaceFileHandles = new Map<string, any>();
 
 interface WorkspaceOpenOptions {
   onRootSelected?: (workspace: WorkspaceDescriptor) => void;
   onProgress?: (scannedCount: number) => void;
+}
+
+export interface ExcelImportFile {
+  name: string;
+  data: ArrayBuffer;
+  path?: string;
+}
+
+export function isExcelImportPath(path: string): boolean {
+  const normalized = path.toLowerCase();
+  return EXCEL_IMPORT_EXTENSIONS.some((ext) => normalized.endsWith(ext));
 }
 
 /**
@@ -78,6 +95,38 @@ export async function openExcelFile(): Promise<{ name: string; data: ArrayBuffer
     }
 
     return await openExcelFileFallback();
+  } catch (err: any) {
+    if (err.name === 'AbortError') return null;
+    throw err;
+  }
+}
+
+export async function openExcelFolder(): Promise<ExcelImportFile[] | null> {
+  const api = (window as any).electronAPI;
+  if (api?.openExcelFolder) {
+    const files = await api.openExcelFolder();
+    if (!files) return null;
+    return files.map((file: { name: string; path?: string; data: unknown }) => ({
+      name: file.name,
+      path: file.path,
+      data: toArrayBuffer(file.data),
+    }));
+  }
+
+  if (supportsDirectoryFileInput()) {
+    return await openExcelFolderDirectoryInput();
+  }
+
+  if (!('showDirectoryPicker' in window)) {
+    window.alert('当前环境不支持选择 Excel 导入目录');
+    return null;
+  }
+
+  try {
+    const rootHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
+    const files: ExcelImportFile[] = [];
+    await collectBrowserExcelFiles(rootHandle, '', files);
+    return files;
   } catch (err: any) {
     if (err.name === 'AbortError') return null;
     throw err;
@@ -302,7 +351,7 @@ function openFileFallback(): Promise<{ name: string; content: string } | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.prd,.tab.md,.txt';
+    input.accept = '.prd,.tab.md,.md';
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) {
@@ -332,6 +381,74 @@ function openExcelFileFallback(): Promise<{ name: string; data: ArrayBuffer } | 
     };
     input.click();
   });
+}
+
+function openExcelFolderDirectoryInput(): Promise<ExcelImportFile[] | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = EXCEL_IMPORT_EXTENSIONS.join(',');
+    (input as any).webkitdirectory = true;
+    input.onchange = async () => {
+      const selectedFiles = Array.from(input.files || []);
+      if (selectedFiles.length === 0) {
+        resolve(null);
+        return;
+      }
+
+      const excelFiles = selectedFiles
+        .filter((file) => isExcelImportPath((file as any).webkitRelativePath || file.name))
+        .sort((a, b) => {
+          const aPath = (a as any).webkitRelativePath || a.name;
+          const bPath = (b as any).webkitRelativePath || b.name;
+          return aPath.localeCompare(bPath, undefined, { sensitivity: 'base' });
+        });
+      const imported = await Promise.all(
+        excelFiles.map(async (file) => ({
+          name: file.name,
+          path: (file as any).webkitRelativePath || file.name,
+          data: await file.arrayBuffer(),
+        }))
+      );
+      resolve(imported);
+    };
+    input.click();
+  });
+}
+
+async function collectBrowserExcelFiles(
+  directoryHandle: any,
+  relativeDir: string,
+  files: ExcelImportFile[]
+): Promise<void> {
+  const iterator =
+    typeof directoryHandle.entries === 'function'
+      ? directoryHandle.entries()
+      : browserDirectoryEntriesFallback(directoryHandle);
+
+  for await (const [name, handle] of iterator) {
+    if (handle.kind === 'directory') {
+      if (name === '.git' || name === 'node_modules' || name === 'dist' || name === 'release') {
+        continue;
+      }
+      await collectBrowserExcelFiles(handle, relativeDir ? `${relativeDir}/${name}` : name, files);
+      continue;
+    }
+
+    if (handle.kind === 'file') {
+      const relativePath = relativeDir ? `${relativeDir}/${name}` : name;
+      if (!isExcelImportPath(relativePath)) continue;
+      const file = await handle.getFile();
+      files.push({
+        name: file.name,
+        path: relativePath,
+        data: await file.arrayBuffer(),
+      });
+    }
+  }
+
+  files.sort((a, b) => (a.path || a.name).localeCompare(b.path || b.name, undefined, { sensitivity: 'base' }));
 }
 
 async function collectBrowserWorkspaceEntries(
