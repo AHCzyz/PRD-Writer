@@ -941,6 +941,20 @@ body,
   font-size: 12px;
 }
 
+.workspace-empty.error {
+  color: #b91c1c;
+}
+
+.workspace-status {
+  padding: 0 10px 6px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.workspace-status.error {
+  color: #b91c1c;
+}
+
 .workspace-node-button {
   width: 100%;
   height: 26px;

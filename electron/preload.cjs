@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openFile: () => ipcRenderer.invoke('file:open'),
   openWorkspace: () => ipcRenderer.invoke('workspace:open'),
   readWorkspaceFile: (filePath) => ipcRenderer.invoke('workspace:read-file', filePath),
+  readWorkspaceFileData: (filePath) => ipcRenderer.invoke('workspace:read-file-data', filePath),
   saveFile: (content, defaultName) => ipcRenderer.invoke('file:save', content, defaultName),
   saveFileToPath: (content, filePath) => ipcRenderer.invoke('file:save-to-path', content, filePath),
   confirmUnsavedClose: (dirtyCount) => ipcRenderer.invoke('app:confirm-unsaved-close', dirtyCount),

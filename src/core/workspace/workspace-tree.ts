@@ -19,7 +19,12 @@ export interface WorkspaceDescriptor {
   nodes: WorkspaceNode[];
 }
 
-const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md'];
+export interface WorkspaceEntry {
+  kind: 'file' | 'directory';
+  path: string;
+}
+
+const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md', '.txt', '.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
 const IGNORED_DIRECTORIES = new Set(['.git', 'node_modules', 'dist', 'release']);
 
 interface MutableDirectory {
@@ -34,7 +39,19 @@ export function isWorkspaceDocumentPath(path: string): boolean {
   return DOCUMENT_EXTENSIONS.some((ext) => normalized.endsWith(ext));
 }
 
+export function isWorkspaceExcelPath(path: string): boolean {
+  const normalized = path.toLowerCase();
+  return ['.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'].some((ext) => normalized.endsWith(ext));
+}
+
 export function createWorkspaceTreeFromPaths(rootPath: string, filePaths: string[]): WorkspaceNode[] {
+  return createWorkspaceTreeFromEntries(
+    rootPath,
+    filePaths.map((path) => ({ kind: 'file', path }))
+  );
+}
+
+export function createWorkspaceTreeFromEntries(rootPath: string, entries: WorkspaceEntry[]): WorkspaceNode[] {
   const root = normalizePath(rootPath).replace(/\/+$/, '');
   const rootDir: MutableDirectory = {
     kind: 'directory',
@@ -43,12 +60,12 @@ export function createWorkspaceTreeFromPaths(rootPath: string, filePaths: string
     children: new Map(),
   };
 
-  for (const rawPath of filePaths) {
-    const filePath = normalizePath(rawPath);
-    if (!isWorkspaceDocumentPath(filePath)) continue;
-    if (!isInsideRoot(root, filePath)) continue;
+  for (const entry of entries) {
+    const entryPath = normalizePath(entry.path);
+    if (entry.kind === 'file' && !isWorkspaceDocumentPath(entryPath)) continue;
+    if (!isInsideRoot(root, entryPath)) continue;
 
-    const relative = filePath.slice(root.length).replace(/^\/+/, '');
+    const relative = entryPath.slice(root.length).replace(/^\/+/, '');
     if (!relative) continue;
     const parts = relative.split('/').filter(Boolean);
     if (parts.some((part) => IGNORED_DIRECTORIES.has(part))) continue;
@@ -57,7 +74,8 @@ export function createWorkspaceTreeFromPaths(rootPath: string, filePaths: string
     for (let index = 0; index < parts.length; index++) {
       const part = parts[index];
       const childPath = `${dir.path}/${part}`;
-      const isFile = index === parts.length - 1;
+      const isLeaf = index === parts.length - 1;
+      const isFile = isLeaf && entry.kind === 'file';
       if (isFile) {
         dir.children.set(part, {
           kind: 'file',
@@ -107,7 +125,6 @@ function finalizeChildren(children: Map<string, MutableDirectory | WorkspaceFile
       };
       return directory;
     })
-    .filter((node) => node.kind === 'file' || node.children.length > 0)
     .sort(compareNodes);
 }
 

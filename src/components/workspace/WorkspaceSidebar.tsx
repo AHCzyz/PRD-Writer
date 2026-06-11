@@ -3,8 +3,13 @@ import { useEditorStore } from '../../store/editor-store';
 import {
   openWorkspace,
   readWorkspaceFile,
+  readWorkspaceFileData,
 } from '../../core/io/file-handler';
-import type { WorkspaceDescriptor, WorkspaceNode } from '../../core/workspace/workspace-tree';
+import {
+  isWorkspaceExcelPath,
+  type WorkspaceDescriptor,
+  type WorkspaceNode,
+} from '../../core/workspace/workspace-tree';
 
 interface WorkspaceSidebarProps {
   onSaveActive: () => Promise<boolean>;
@@ -21,6 +26,8 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
   const [workspace, setWorkspace] = useState<WorkspaceDescriptor | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set());
   const [loadingPath, setLoadingPath] = useState<string | null>(null);
+  const [workspaceStatus, setWorkspaceStatus] = useState('选择一个目录作为工作区');
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const workspaceFilePaths = new Set(workspace ? flattenFilePaths(workspace.nodes) : []);
@@ -30,11 +37,34 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
   );
 
   const handleOpenWorkspace = async () => {
-    const result = await openWorkspace();
-    if (!result) return;
+    setWorkspaceError(null);
+    setWorkspaceStatus('正在扫描工作区...');
 
-    setWorkspace(result);
-    setExpandedPaths(new Set([result.path]));
+    try {
+      const result = await openWorkspace({
+        onRootSelected: (root) => {
+          setWorkspace(root);
+          setExpandedPaths(new Set([root.path]));
+          setWorkspaceStatus('正在扫描工作区...');
+        },
+        onProgress: (count) => {
+          setWorkspaceStatus(`正在扫描工作区... ${count} 项`);
+        },
+      });
+      if (!result) {
+        setWorkspaceStatus(workspace ? workspaceStatus : '选择一个目录作为工作区');
+        return;
+      }
+
+      setWorkspace(result);
+      setExpandedPaths(new Set([result.path, ...flattenDirectoryPaths(result.nodes)]));
+      const fileCount = flattenFilePaths(result.nodes).length;
+      setWorkspaceStatus(fileCount > 0 ? `${fileCount} 个文档` : '未找到支持的文档');
+    } catch (err) {
+      console.error('Failed to open workspace:', err);
+      setWorkspaceError('工作区扫描失败');
+      setWorkspaceStatus('请选择其他目录或检查权限');
+    }
   };
 
   const handleCloseOpenDocument = (event: React.MouseEvent, tabId: string) => {
@@ -62,8 +92,13 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
 
     setLoadingPath(node.path);
     try {
-      const content = await readWorkspaceFile(node.path);
-      openFileOrReplace(node.path, content);
+      if (isWorkspaceExcelPath(node.path)) {
+        const data = await readWorkspaceFileData(node.path);
+        await openWorkspaceExcel(node, data);
+      } else {
+        const content = await readWorkspaceFile(node.path);
+        openFileOrReplace(node.path, content);
+      }
     } catch (err) {
       console.error('Failed to open workspace file:', err);
       window.alert('打开工作区文件失败');
@@ -98,6 +133,9 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
           <div className="workspace-root" title={workspace.path}>
             {workspace.name}
           </div>
+          <div className={`workspace-status ${workspaceError ? 'error' : ''}`}>
+            {workspaceError || workspaceStatus}
+          </div>
           {workspace.nodes.length > 0 ? (
             workspace.nodes.map((node) => (
               <WorkspaceTreeNode
@@ -112,11 +150,13 @@ export default function WorkspaceSidebar({ onSaveActive, onOpenFile }: Workspace
               />
             ))
           ) : (
-            <div className="workspace-empty">未找到文档</div>
+            <div className="workspace-empty">没有可展开的子目录或文档</div>
           )}
         </div>
       ) : (
-        <div className="workspace-empty">选择一个目录作为工作区</div>
+        <div className={`workspace-empty ${workspaceError ? 'error' : ''}`}>
+          {workspaceError || workspaceStatus}
+        </div>
       )}
 
       {openDocumentTabs.length > 0 && (
@@ -216,4 +256,29 @@ function flattenFilePaths(nodes: WorkspaceNode[]): string[] {
     }
   }
   return result;
+}
+
+function flattenDirectoryPaths(nodes: WorkspaceNode[]): string[] {
+  const result: string[] = [];
+  for (const node of nodes) {
+    if (node.kind === 'directory') {
+      result.push(node.path, ...flattenDirectoryPaths(node.children));
+    }
+  }
+  return result;
+}
+
+async function openWorkspaceExcel(node: WorkspaceNode, data: ArrayBuffer) {
+  if (node.kind !== 'file') return;
+  const { importExcelWorkbook } = await import('../../core/excel/importer');
+  const sheets = importExcelWorkbook(data);
+  useEditorStore.getState().openImportedDocuments(
+    sheets.map((sheet) => ({
+      title: `${node.name} - ${sheet.name}`,
+      document: sheet.document,
+      columnWidths: sheet.columnWidths,
+      filePath: null,
+      isDirty: true,
+    }))
+  );
 }

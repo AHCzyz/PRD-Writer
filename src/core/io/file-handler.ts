@@ -3,9 +3,10 @@
  * 支持 File System Access API 打开/保存 .tab.md 文件
  */
 import {
-  createWorkspaceTreeFromPaths,
+  createWorkspaceTreeFromEntries,
   isWorkspaceDocumentPath,
   normalizePath,
+  type WorkspaceEntry,
   type WorkspaceDescriptor,
 } from '../workspace/workspace-tree';
 
@@ -34,6 +35,11 @@ const EXCEL_FILE_TYPES = [
 ];
 
 const browserWorkspaceFileHandles = new Map<string, any>();
+
+interface WorkspaceOpenOptions {
+  onRootSelected?: (workspace: WorkspaceDescriptor) => void;
+  onProgress?: (scannedCount: number) => void;
+}
 
 /**
  * 打开文件对话框，读取 .tab.md 文件内容
@@ -78,17 +84,29 @@ export async function openExcelFile(): Promise<{ name: string; data: ArrayBuffer
   }
 }
 
-export async function openWorkspace(): Promise<WorkspaceDescriptor | null> {
+export async function openWorkspace(options: WorkspaceOpenOptions = {}): Promise<WorkspaceDescriptor | null> {
   const api = (window as any).electronAPI;
   if (api?.openWorkspace) {
     const result = await api.openWorkspace();
     if (!result) return null;
     const rootPath = normalizePath(result.rootPath);
+    const entries = Array.isArray(result.entries)
+      ? result.entries
+      : (result.files || []).map((path: string) => ({ kind: 'file', path }));
+    options.onRootSelected?.({
+      name: rootPath.split('/').pop() || rootPath,
+      path: rootPath,
+      nodes: [],
+    });
     return {
       name: rootPath.split('/').pop() || rootPath,
       path: rootPath,
-      nodes: createWorkspaceTreeFromPaths(rootPath, result.files || []),
+      nodes: createWorkspaceTreeFromEntries(rootPath, entries),
     };
+  }
+
+  if (supportsDirectoryFileInput()) {
+    return await openWorkspaceDirectoryInput(options);
   }
 
   if (!('showDirectoryPicker' in window)) {
@@ -97,15 +115,22 @@ export async function openWorkspace(): Promise<WorkspaceDescriptor | null> {
   }
 
   try {
-    const rootHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+    const rootHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
     const rootPath = normalizePath(rootHandle.name || 'workspace');
-    const files: string[] = [];
+    options.onRootSelected?.({
+      name: rootHandle.name || 'workspace',
+      path: rootPath,
+      nodes: [],
+    });
+    await waitForPaint();
+
+    const entries: WorkspaceEntry[] = [];
     browserWorkspaceFileHandles.clear();
-    await collectBrowserWorkspaceFiles(rootHandle, rootPath, files);
+    await collectBrowserWorkspaceEntries(rootHandle, rootPath, entries, options.onProgress);
     return {
       name: rootHandle.name || 'workspace',
       path: rootPath,
-      nodes: createWorkspaceTreeFromPaths(rootPath, files),
+      nodes: createWorkspaceTreeFromEntries(rootPath, entries),
     };
   } catch (err: any) {
     if (err.name === 'AbortError') return null;
@@ -123,18 +148,123 @@ export async function readWorkspaceFile(filePath: string): Promise<string> {
   if (!handle) {
     throw new Error(`Workspace file handle not found: ${filePath}`);
   }
-  const file = await handle.getFile();
+  const file = typeof handle.getFile === 'function' ? await handle.getFile() : handle;
   return await file.text();
+}
+
+export async function readWorkspaceFileData(filePath: string): Promise<ArrayBuffer> {
+  const api = (window as any).electronAPI;
+  if (api?.readWorkspaceFileData) {
+    return toArrayBuffer(await api.readWorkspaceFileData(filePath));
+  }
+
+  const handle = browserWorkspaceFileHandles.get(normalizePath(filePath));
+  if (!handle) {
+    throw new Error(`Workspace file handle not found: ${filePath}`);
+  }
+  const file = typeof handle.getFile === 'function' ? await handle.getFile() : handle;
+  return await file.arrayBuffer();
 }
 
 export async function saveWorkspaceFile(filePath: string, content: string): Promise<boolean> {
   const handle = browserWorkspaceFileHandles.get(normalizePath(filePath));
   if (!handle?.createWritable) return false;
 
+  if (typeof handle.queryPermission === 'function' && typeof handle.requestPermission === 'function') {
+    const descriptor = { mode: 'readwrite' };
+    const current = await handle.queryPermission(descriptor);
+    if (current !== 'granted') {
+      const requested = await handle.requestPermission(descriptor);
+      if (requested !== 'granted') return false;
+    }
+  }
+
   const writable = await handle.createWritable();
   await writable.write(content);
   await writable.close();
   return true;
+}
+
+function openWorkspaceDirectoryInput(options: WorkspaceOpenOptions): Promise<WorkspaceDescriptor | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    (input as any).webkitdirectory = true;
+    input.onchange = async () => {
+      const files = Array.from(input.files || []);
+      if (files.length === 0) {
+        resolve(null);
+        return;
+      }
+
+      const rootName = getDirectoryInputRootName(files);
+      const rootPath = normalizePath(rootName);
+      const entries: WorkspaceEntry[] = [];
+      const seenDirectories = new Set<string>();
+
+      browserWorkspaceFileHandles.clear();
+      options.onRootSelected?.({ name: rootName, path: rootPath, nodes: [] });
+      await waitForPaint();
+
+      for (const file of files) {
+        const relativePath = normalizePath((file as any).webkitRelativePath || file.name);
+        const normalizedPath = relativePath.includes('/') ? relativePath : `${rootPath}/${relativePath}`;
+        const parts = normalizedPath.split('/').filter(Boolean);
+
+        for (let index = 1; index < parts.length - 1; index++) {
+          const dirPath = parts.slice(0, index + 1).join('/');
+          if (!seenDirectories.has(dirPath)) {
+            seenDirectories.add(dirPath);
+            entries.push({ kind: 'directory', path: dirPath });
+          }
+        }
+
+        entries.push({ kind: 'file', path: normalizedPath });
+        if (isWorkspaceDocumentPath(normalizedPath)) {
+          browserWorkspaceFileHandles.set(normalizedPath, file);
+        }
+
+        if (entries.length % 100 === 0) {
+          options.onProgress?.(entries.length);
+          await waitForPaint();
+        }
+      }
+
+      resolve({
+        name: rootName,
+        path: rootPath,
+        nodes: createWorkspaceTreeFromEntries(rootPath, entries),
+      });
+    };
+    input.click();
+  });
+}
+
+function supportsDirectoryFileInput(): boolean {
+  const input = document.createElement('input');
+  input.type = 'file';
+  return 'webkitdirectory' in input;
+}
+
+function getDirectoryInputRootName(files: File[]): string {
+  const firstRelativePath = normalizePath((files[0] as any)?.webkitRelativePath || '');
+  const firstPart = firstRelativePath.split('/').filter(Boolean)[0];
+  return firstPart || 'workspace';
+}
+
+function toArrayBuffer(value: unknown): ArrayBuffer {
+  if (value instanceof ArrayBuffer) return value;
+  if (ArrayBuffer.isView(value)) {
+    return value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  }
+  if (value && typeof value === 'object' && 'data' in value && Array.isArray((value as { data: unknown }).data)) {
+    return new Uint8Array((value as { data: number[] }).data).buffer;
+  }
+  if (Array.isArray(value)) {
+    return new Uint8Array(value).buffer;
+  }
+  throw new Error('Unsupported binary file data');
 }
 
 /**
@@ -204,26 +334,67 @@ function openExcelFileFallback(): Promise<{ name: string; data: ArrayBuffer } | 
   });
 }
 
-async function collectBrowserWorkspaceFiles(
+async function collectBrowserWorkspaceEntries(
   directoryHandle: any,
   currentPath: string,
-  files: string[]
+  entries: WorkspaceEntry[],
+  onProgress?: (scannedCount: number) => void,
+  counter = { value: 0 }
 ): Promise<void> {
-  for await (const [name, handle] of directoryHandle.entries()) {
+  const iterator =
+    typeof directoryHandle.entries === 'function'
+      ? directoryHandle.entries()
+      : browserDirectoryEntriesFallback(directoryHandle);
+
+  for await (const [name, handle] of iterator) {
     const childPath = normalizePath(`${currentPath}/${name}`);
     if (handle.kind === 'directory') {
       if (name === '.git' || name === 'node_modules' || name === 'dist' || name === 'release') {
         continue;
       }
-      await collectBrowserWorkspaceFiles(handle, childPath, files);
+      entries.push({ kind: 'directory', path: childPath });
+      await reportWorkspaceScanProgress(counter, onProgress);
+      await collectBrowserWorkspaceEntries(handle, childPath, entries, onProgress, counter);
       continue;
     }
 
-    if (handle.kind === 'file' && isWorkspaceDocumentPath(childPath)) {
-      files.push(childPath);
-      browserWorkspaceFileHandles.set(childPath, handle);
+    if (handle.kind === 'file') {
+      entries.push({ kind: 'file', path: childPath });
+      if (isWorkspaceDocumentPath(childPath)) {
+        browserWorkspaceFileHandles.set(childPath, handle);
+      }
+      await reportWorkspaceScanProgress(counter, onProgress);
     }
   }
+}
+
+async function* browserDirectoryEntriesFallback(directoryHandle: any): AsyncGenerator<[string, any]> {
+  if (typeof directoryHandle.values !== 'function') {
+    throw new Error('当前浏览器不支持读取目录内容');
+  }
+  for await (const handle of directoryHandle.values()) {
+    yield [handle.name, handle];
+  }
+}
+
+async function reportWorkspaceScanProgress(
+  counter: { value: number },
+  onProgress?: (scannedCount: number) => void
+) {
+  counter.value++;
+  if (counter.value % 25 !== 0) return;
+  onProgress?.(counter.value);
+  await waitForPaint();
+}
+
+function waitForPaint(): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => resolve());
+      return;
+    }
+    setTimeout(resolve, 0);
+  });
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkspaceTreeFromPaths } from '../workspace-tree';
+import { createWorkspaceTreeFromEntries, createWorkspaceTreeFromPaths } from '../workspace-tree';
 
 describe('workspace tree', () => {
   it('builds a recursive document tree from workspace paths', () => {
@@ -23,6 +23,32 @@ describe('workspace tree', () => {
         ],
       },
       { kind: 'file', name: 'a.prd', path: 'F:/repo/a.prd' },
+      { kind: 'file', name: 'z-note.txt', path: 'F:/repo/z-note.txt' },
+    ]);
+  });
+
+  it('keeps scanned directories even when they do not contain supported documents', () => {
+    const tree = createWorkspaceTreeFromEntries('F:\\repo', [
+      { kind: 'directory', path: 'F:\\repo\\docs' },
+      { kind: 'directory', path: 'F:\\repo\\empty' },
+      { kind: 'directory', path: 'F:\\repo\\node_modules' },
+      { kind: 'file', path: 'F:\\repo\\docs\\brief.prd' },
+      { kind: 'file', path: 'F:\\repo\\empty\\image.png' },
+    ]);
+
+    expect(tree).toEqual([
+      {
+        kind: 'directory',
+        name: 'docs',
+        path: 'F:/repo/docs',
+        children: [{ kind: 'file', name: 'brief.prd', path: 'F:/repo/docs/brief.prd' }],
+      },
+      {
+        kind: 'directory',
+        name: 'empty',
+        path: 'F:/repo/empty',
+        children: [],
+      },
     ]);
   });
 });

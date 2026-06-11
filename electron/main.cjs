@@ -12,7 +12,7 @@ let closeConfirmed = false;
 let closeRequestPending = false;
 let closeRequestId = 0;
 const closeResponses = new Map();
-const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md'];
+const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md', '.txt', '.xlsx', '.xls', '.xlsm', '.xlsb', '.csv'];
 const IGNORED_WORKSPACE_DIRS = new Set(['.git', 'node_modules', 'dist', 'release']);
 
 /**
@@ -106,7 +106,7 @@ function isWorkspaceDocument(filePath) {
   return DOCUMENT_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
 
-function collectWorkspaceFiles(rootPath) {
+function collectWorkspaceEntries(rootPath) {
   const result = [];
   const stack = [rootPath];
 
@@ -124,10 +124,11 @@ function collectWorkspaceFiles(rootPath) {
       const childPath = path.join(current, entry.name);
       if (entry.isDirectory()) {
         if (!IGNORED_WORKSPACE_DIRS.has(entry.name)) {
+          result.push({ kind: 'directory', path: childPath });
           stack.push(childPath);
         }
       } else if (entry.isFile() && isWorkspaceDocument(childPath)) {
-        result.push(childPath);
+        result.push({ kind: 'file', path: childPath });
       }
     }
   }
@@ -209,12 +210,16 @@ ipcMain.handle('workspace:open', async () => {
   const rootPath = result.filePaths[0];
   return {
     rootPath,
-    files: collectWorkspaceFiles(rootPath),
+    entries: collectWorkspaceEntries(rootPath),
   };
 });
 
 ipcMain.handle('workspace:read-file', async (_event, filePath) => {
   return fs.readFileSync(filePath, 'utf-8');
+});
+
+ipcMain.handle('workspace:read-file-data', async (_event, filePath) => {
+  return fs.readFileSync(filePath);
 });
 
 ipcMain.handle('file:save', async (_event, content, defaultName) => {
