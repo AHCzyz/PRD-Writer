@@ -69,6 +69,14 @@ body,
 
 .app-main {
   flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.editor-main {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -94,35 +102,6 @@ body,
 .auto-save-label input[type="checkbox"] {
   margin: 0;
   cursor: pointer;
-}
-
-/* === Mode Toggle === */
-.mode-toggle {
-  display: flex;
-  background: #f3f4f6;
-  border-radius: 6px;
-  padding: 2px;
-}
-
-.mode-btn {
-  padding: 4px 12px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 13px;
-  color: #6b7280;
-  transition: all 0.15s;
-}
-
-.mode-btn.active {
-  background: white;
-  color: var(--color-text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-.mode-btn:hover:not(.active) {
-  color: var(--color-text);
 }
 
 /* === Top Toolbar === */
@@ -268,6 +247,7 @@ body,
   position: relative;
   font-size: var(--cell-font-size, 14px);
   user-select: none;
+  overflow: visible;
 }
 
 .grid-cell.cell-focused {
@@ -436,7 +416,9 @@ body,
   line-height: var(--cell-line-height, 21px);
   font-size: var(--cell-font-size, 14px);
   outline: none;
-  word-break: break-word;
+  overflow: visible;
+  white-space: pre;
+  word-break: normal;
 }
 
 .cell-wrapper-focused {
@@ -451,6 +433,8 @@ body,
 
 .cell-renderer {
   min-height: 24px;
+  overflow: visible;
+  white-space: pre;
 }
 
 .cell-editor {
@@ -464,6 +448,7 @@ body,
   background: white;
   line-height: var(--cell-line-height, 21px);
   font-size: var(--cell-font-size, 14px);
+  overflow: visible;
 }
 
 /* Tiptap / ProseMirror 基础样式 */
@@ -472,12 +457,15 @@ body,
   padding: 0;
   min-height: var(--cell-line-height, 21px);
   font-size: var(--cell-font-size, 14px);
+  overflow: visible;
+  white-space: pre;
 }
 
 .cell-editor-content .ProseMirror p {
   margin: 0;
   padding: 0;
   line-height: var(--cell-line-height, 21px);
+  white-space: pre;
 }
 
 .cell-editor-content .ProseMirror > * + * {
@@ -574,12 +562,6 @@ body,
 
 .column-resize-handle {
   display: none;
-}
-
-/* === Source View === */
-.source-view {
-  height: 100%;
-  width: 100%;
 }
 
 /* === Floating Toolbar === */
@@ -882,117 +864,185 @@ body,
   border-color: var(--color-border-focus);
 }
 
-/* === Tab Bar === */
-.tab-bar {
+/* === Workspace Sidebar === */
+.workspace-sidebar {
+  width: 248px;
+  min-width: 200px;
+  max-width: 320px;
   display: flex;
-  align-items: center;
-  background: #f3f4f6;
-  border-bottom: 1px solid var(--color-border);
-  padding: 0 4px;
+  flex-direction: column;
   flex-shrink: 0;
-  overflow-x: auto;
-  min-height: 36px;
+  border-right: 1px solid var(--color-border);
+  background: #fbfbfc;
+  overflow: hidden;
 }
 
-.tab-list {
+.workspace-header {
+  height: 38px;
   display: flex;
   align-items: center;
-  gap: 2px;
-  overflow-x: auto;
-  flex: 1;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border);
 }
 
-.tab-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  cursor: pointer;
+.workspace-title {
+  overflow: hidden;
+  color: #111827;
   font-size: 13px;
-  color: #6b7280;
+  font-weight: 600;
+  text-overflow: ellipsis;
   white-space: nowrap;
-  transition: all 0.15s;
-  min-width: 80px;
-  max-width: 180px;
-  user-select: none;
 }
 
-.tab-item:hover {
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--color-text);
-}
-
-.tab-item.tab-active {
-  background: white;
-  color: var(--color-text);
-  border-bottom-color: var(--color-border-focus);
-}
-
-.tab-title {
+.workspace-actions {
   display: flex;
-  align-items: center;
-  gap: 4px;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.workspace-action {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: #fff;
+  color: #374151;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.workspace-action:hover {
+  background: var(--color-hover);
+}
+
+.workspace-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 0;
+}
+
+.workspace-root {
+  padding: 5px 10px;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
 }
 
-.tab-dirty-dot {
-  display: inline-block;
+.workspace-empty {
+  padding: 12px 10px;
+  color: #9ca3af;
+  font-size: 12px;
+}
+
+.workspace-node-button {
+  width: 100%;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  background: transparent;
+  color: #374151;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+}
+
+.workspace-node-button:hover {
+  background: #f3f4f6;
+}
+
+.workspace-node-button.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.workspace-node-icon {
+  width: 12px;
+  flex-shrink: 0;
+  color: #6b7280;
+  text-align: center;
+}
+
+.workspace-node-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-node-meta {
+  color: #9ca3af;
+  font-size: 11px;
+}
+
+.workspace-dirty-dot {
   width: 6px;
   height: 6px;
-  background: #3b82f6;
-  border-radius: 50%;
+  margin-right: 4px;
   flex-shrink: 0;
+  border-radius: 50%;
+  background: #2563eb;
 }
 
-.tab-close-btn {
-  display: inline-flex;
+.workspace-open-docs {
+  max-height: 40%;
+  overflow: auto;
+  border-top: 1px solid var(--color-border);
+  padding: 6px 0;
+}
+
+.workspace-section-title {
+  padding: 4px 10px 6px;
+  color: #6b7280;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.workspace-open-doc {
+  height: 28px;
+  display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 5px;
+  padding: 0 6px 0 10px;
+  color: #374151;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.workspace-open-doc:hover {
+  background: #f3f4f6;
+}
+
+.workspace-open-doc.active {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.workspace-close-doc {
   width: 18px;
   height: 18px;
-  border: none;
-  background: transparent;
+  flex-shrink: 0;
+  border: 0;
   border-radius: 4px;
+  background: transparent;
+  color: #9ca3af;
   cursor: pointer;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1;
-  color: #9ca3af;
-  padding: 0;
-  flex-shrink: 0;
-  transition: background 0.1s;
 }
 
-.tab-close-btn:hover {
-  background: rgba(0, 0, 0, 0.1);
-  color: #ef4444;
-}
-
-.tab-add-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 18px;
-  color: #9ca3af;
-  margin-left: 4px;
-  transition: all 0.1s;
-  flex-shrink: 0;
-}
-
-.tab-add-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: var(--color-text);
+.workspace-close-doc:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #b91c1c;
 }
 
 /* === Status Bar === */

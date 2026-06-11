@@ -12,6 +12,8 @@ let closeConfirmed = false;
 let closeRequestPending = false;
 let closeRequestId = 0;
 const closeResponses = new Map();
+const DOCUMENT_EXTENSIONS = ['.prd', '.tab.md', '.md'];
+const IGNORED_WORKSPACE_DIRS = new Set(['.git', 'node_modules', 'dist', 'release']);
 
 /**
  * 从 argv 中提取文件路径（.tab.md / .md / .prd）
@@ -99,6 +101,40 @@ function createWindow() {
   });
 }
 
+function isWorkspaceDocument(filePath) {
+  const lower = filePath.toLowerCase();
+  return DOCUMENT_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+function collectWorkspaceFiles(rootPath) {
+  const result = [];
+  const stack = [rootPath];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    let entries;
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch (err) {
+      console.error('Failed to read workspace directory:', current, err);
+      continue;
+    }
+
+    for (const entry of entries) {
+      const childPath = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (!IGNORED_WORKSPACE_DIRS.has(entry.name)) {
+          stack.push(childPath);
+        }
+      } else if (entry.isFile() && isWorkspaceDocument(childPath)) {
+        result.push(childPath);
+      }
+    }
+  }
+
+  return result;
+}
+
 // === 单实例锁 ===
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -162,6 +198,23 @@ ipcMain.handle('file:open', async () => {
   if (result.canceled || result.filePaths.length === 0) return null;
   const content = fs.readFileSync(result.filePaths[0], 'utf-8');
   return { path: result.filePaths[0], content };
+});
+
+ipcMain.handle('workspace:open', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择工作区',
+    properties: ['openDirectory'],
+  });
+  if (result.canceled || result.filePaths.length === 0) return null;
+  const rootPath = result.filePaths[0];
+  return {
+    rootPath,
+    files: collectWorkspaceFiles(rootPath),
+  };
+});
+
+ipcMain.handle('workspace:read-file', async (_event, filePath) => {
+  return fs.readFileSync(filePath, 'utf-8');
 });
 
 ipcMain.handle('file:save', async (_event, content, defaultName) => {

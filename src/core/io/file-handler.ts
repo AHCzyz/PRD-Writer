@@ -2,6 +2,12 @@
  * 文件 I/O 处理
  * 支持 File System Access API 打开/保存 .tab.md 文件
  */
+import {
+  createWorkspaceTreeFromPaths,
+  isWorkspaceDocumentPath,
+  normalizePath,
+  type WorkspaceDescriptor,
+} from '../workspace/workspace-tree';
 
 const FILE_TYPES = [
   {
@@ -26,6 +32,8 @@ const EXCEL_FILE_TYPES = [
     },
   },
 ];
+
+const browserWorkspaceFileHandles = new Map<string, any>();
 
 /**
  * 打开文件对话框，读取 .tab.md 文件内容
@@ -68,6 +76,65 @@ export async function openExcelFile(): Promise<{ name: string; data: ArrayBuffer
     if (err.name === 'AbortError') return null;
     throw err;
   }
+}
+
+export async function openWorkspace(): Promise<WorkspaceDescriptor | null> {
+  const api = (window as any).electronAPI;
+  if (api?.openWorkspace) {
+    const result = await api.openWorkspace();
+    if (!result) return null;
+    const rootPath = normalizePath(result.rootPath);
+    return {
+      name: rootPath.split('/').pop() || rootPath,
+      path: rootPath,
+      nodes: createWorkspaceTreeFromPaths(rootPath, result.files || []),
+    };
+  }
+
+  if (!('showDirectoryPicker' in window)) {
+    window.alert('当前环境不支持选择工作区目录');
+    return null;
+  }
+
+  try {
+    const rootHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+    const rootPath = normalizePath(rootHandle.name || 'workspace');
+    const files: string[] = [];
+    browserWorkspaceFileHandles.clear();
+    await collectBrowserWorkspaceFiles(rootHandle, rootPath, files);
+    return {
+      name: rootHandle.name || 'workspace',
+      path: rootPath,
+      nodes: createWorkspaceTreeFromPaths(rootPath, files),
+    };
+  } catch (err: any) {
+    if (err.name === 'AbortError') return null;
+    throw err;
+  }
+}
+
+export async function readWorkspaceFile(filePath: string): Promise<string> {
+  const api = (window as any).electronAPI;
+  if (api?.readWorkspaceFile) {
+    return await api.readWorkspaceFile(filePath);
+  }
+
+  const handle = browserWorkspaceFileHandles.get(normalizePath(filePath));
+  if (!handle) {
+    throw new Error(`Workspace file handle not found: ${filePath}`);
+  }
+  const file = await handle.getFile();
+  return await file.text();
+}
+
+export async function saveWorkspaceFile(filePath: string, content: string): Promise<boolean> {
+  const handle = browserWorkspaceFileHandles.get(normalizePath(filePath));
+  if (!handle?.createWritable) return false;
+
+  const writable = await handle.createWritable();
+  await writable.write(content);
+  await writable.close();
+  return true;
 }
 
 /**
@@ -135,6 +202,28 @@ function openExcelFileFallback(): Promise<{ name: string; data: ArrayBuffer } | 
     };
     input.click();
   });
+}
+
+async function collectBrowserWorkspaceFiles(
+  directoryHandle: any,
+  currentPath: string,
+  files: string[]
+): Promise<void> {
+  for await (const [name, handle] of directoryHandle.entries()) {
+    const childPath = normalizePath(`${currentPath}/${name}`);
+    if (handle.kind === 'directory') {
+      if (name === '.git' || name === 'node_modules' || name === 'dist' || name === 'release') {
+        continue;
+      }
+      await collectBrowserWorkspaceFiles(handle, childPath, files);
+      continue;
+    }
+
+    if (handle.kind === 'file' && isWorkspaceDocumentPath(childPath)) {
+      files.push(childPath);
+      browserWorkspaceFileHandles.set(childPath, handle);
+    }
+  }
 }
 
 /**

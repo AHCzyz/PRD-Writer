@@ -4,10 +4,15 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import Grid from '../grid/Grid';
 import TopToolbar from '../toolbar/TopToolbar';
-import TabBar from '../tabs/TabBar';
 import { useEditorStore, type Tab } from '../../store/editor-store';
-import { openExcelFile, openFile, saveFile } from '../../core/io/file-handler';
+import {
+  openExcelFile,
+  openFile,
+  saveFile,
+  saveWorkspaceFile,
+} from '../../core/io/file-handler';
 import { commitActiveCellEditor } from '../cell/CellEditor';
+import WorkspaceSidebar from '../workspace/WorkspaceSidebar';
 
 export default function AppShell() {
   const focus = useEditorStore((s) => s.focus);
@@ -32,6 +37,14 @@ export default function AppShell() {
         state.markTabDirty(tab.id, false);
       }
       return Boolean(ok);
+    }
+
+    if (tab.filePath) {
+      const workspaceSaved = await saveWorkspaceFile(tab.filePath, tab.sourceText);
+      if (workspaceSaved) {
+        state.markTabDirty(tab.id, false);
+        return true;
+      }
     }
 
     const defaultName = tab.filePath
@@ -133,12 +146,12 @@ export default function AppShell() {
     }
   }, [openFileOrReplace]);
 
-  const handleOpen = async () => {
+  const handleOpen = useCallback(async () => {
     const result = await openFile();
     if (result) {
       openFileOrReplace(result.name, result.content);
     }
-  };
+  }, [openFileOrReplace]);
 
   const handleImportExcel = async () => {
     const result = await openExcelFile();
@@ -191,9 +204,11 @@ export default function AppShell() {
         </div>
         <TopToolbar />
       </header>
-      <TabBar />
       <main className="app-main">
-        <Grid />
+        <WorkspaceSidebar onSaveActive={handleSave} onOpenFile={handleOpen} />
+        <section className="editor-main">
+          <Grid />
+        </section>
       </main>
       <footer className="app-statusbar">
         <span className="status-item">编辑模式</span>

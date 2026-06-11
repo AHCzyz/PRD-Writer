@@ -328,15 +328,21 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   },
 
   markTabDirty: (id, dirty) => {
-    const { tabs } = get();
+    const { tabs, activeTabId } = get();
     const updated = tabs.map((t) =>
       t.id === id ? { ...t, isDirty: dirty } : t
     );
-    set({ tabs: updated });
+    set(syncFromActive(updated, activeTabId));
   },
 
   openFileOrReplace: (filePath, content) => {
     const { tabs, activeTabId } = get();
+    const existing = tabs.find((t) => t.filePath === filePath);
+    if (existing) {
+      set(syncFromActive(tabs, existing.id));
+      return;
+    }
+
     const active = tabs.find((t) => t.id === activeTabId);
     // 若当前标签为空白且未修改，直接替换
     if (active && !active.isDirty && !active.filePath) {
