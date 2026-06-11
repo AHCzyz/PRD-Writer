@@ -6,3 +6,4 @@ dist/
 release/
 .builder-cache/
 prd-writer*.zip
+.qoder
