@@ -9,7 +9,12 @@ import { Editor, type JSONContent } from '@tiptap/core';
 import { getCellEditorExtensions } from '../../core/format/cell-editor-config';
 import { markupToTiptapHTML } from '../../core/format/markup-to-tiptap';
 import { tiptapToCell } from '../../core/format/tiptap-to-markup';
-import { getImageFromClipboard, getImageDimensions } from '../../core/image/image-handler';
+import {
+  constrainImageDimensions,
+  getImageFromClipboard,
+  getImageDimensions,
+  hasImageInClipboard,
+} from '../../core/image/image-handler';
 import { FloatingToolbar } from '../toolbar/FloatingToolbar';
 import { isToolbarInteracting } from '../toolbar/FloatingToolbar';
 import { SlashCommand } from '../toolbar/SlashCommand';
@@ -319,25 +324,25 @@ export function CellEditor({
             return false;
           },
           paste: (_view, event: ClipboardEvent) => {
+            if (!hasImageInClipboard(event)) {
+              return false;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
             getImageFromClipboard(event).then((dataUrl) => {
-              if (dataUrl) {
-                event.preventDefault();
-                getImageDimensions(dataUrl).then(({ width, height }) => {
-                  const maxW = 300;
-                  if (width > maxW) {
-                    const ratio = maxW / width;
-                    width = maxW;
-                    height = Math.round(height * ratio);
-                  }
-                  editor
-                    .chain()
-                    .focus()
-                    .insertImage(dataUrl, width, height)
-                    .run();
-                });
-              }
+              if (!dataUrl) return;
+              getImageDimensions(dataUrl).then((dimensions) => {
+                const { width, height } = constrainImageDimensions(dimensions);
+                editor
+                  .chain()
+                  .focus()
+                  .insertImage(dataUrl, width, height)
+                  .run();
+                committedRef.current = false;
+              });
             });
-            return false;
+            return true;
           },
         },
       },

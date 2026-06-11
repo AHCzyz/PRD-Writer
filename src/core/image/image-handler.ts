@@ -23,6 +23,28 @@ export async function getImageFromClipboard(
   return null;
 }
 
+export function hasImageInClipboard(event: ClipboardEvent): boolean {
+  const items = event.clipboardData?.items;
+  if (!items) return false;
+
+  for (const item of items) {
+    if (item.type.startsWith('image/')) return true;
+  }
+  return false;
+}
+
+export function constrainImageDimensions(
+  dimensions: { width: number; height: number },
+  maxWidth = 300
+): { width: number; height: number } {
+  if (dimensions.width <= maxWidth) return dimensions;
+  const ratio = maxWidth / dimensions.width;
+  return {
+    width: maxWidth,
+    height: Math.round(dimensions.height * ratio),
+  };
+}
+
 /**
  * 从拖拽事件获取图片
  */

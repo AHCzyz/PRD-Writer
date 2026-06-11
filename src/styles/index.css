@@ -260,6 +260,22 @@ body,
   background-color: #dbeafe;
 }
 
+.grid-cell.cell-frozen {
+  background:
+    repeating-linear-gradient(
+      135deg,
+      rgba(148, 163, 184, 0.12),
+      rgba(148, 163, 184, 0.12) 6px,
+      rgba(255, 255, 255, 0.16) 6px,
+      rgba(255, 255, 255, 0.16) 12px
+    );
+  cursor: not-allowed;
+}
+
+.grid-cell.cell-frozen.cell-selected {
+  background-color: #e5e7eb;
+}
+
 .grid-cell-empty {
   /* 空格子不再灰底，与正常格子一致 */
 }
@@ -473,7 +489,8 @@ body,
 }
 
 .cell-editor-content .ProseMirror img {
-  max-width: 100%;
+  max-width: none;
+  height: auto;
 }
 
 /* === Mark 渲染样式 === */
@@ -544,14 +561,23 @@ body,
 
 /* === 图片 === */
 .cell-image {
-  max-width: 100%;
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  z-index: 3;
+  max-width: none;
+  height: auto;
   display: block;
-  margin: 4px 0;
+  margin: 0;
   border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+  background: #fff;
+  cursor: default;
 }
 
 .inline-image {
-  max-width: 100%;
+  max-width: none;
+  height: auto;
   vertical-align: middle;
 }
 
@@ -852,7 +878,8 @@ body,
 
 /* === Image === */
 .tabml-image {
-  max-width: 100%;
+  max-width: none;
+  height: auto;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   cursor: default;

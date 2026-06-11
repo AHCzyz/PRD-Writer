@@ -10,24 +10,27 @@ import { useEditorStore } from '../../store/editor-store';
 import CellRenderer from './CellRenderer';
 import { CellEditor, commitActiveCellEditor } from './CellEditor';
 import { GRID_EXPAND_BATCH } from '../../constants/format';
+import { isCellImageInteractionTarget } from '../../core/image/image-target';
+import { shouldShowCellEditor } from './cell-display';
 
 interface CellProps {
   cell: TabMLCell;
   rowIndex: number;
   colIndex: number;
+  frozen?: boolean;
 }
 
-export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
+export default function Cell({ cell, rowIndex, colIndex, frozen = false }: CellProps) {
   const focus = useEditorStore((s) => s.focus);
   const setFocus = useEditorStore((s) => s.setFocus);
   const updateCell = useEditorStore((s) => s.updateCell);
   const doc = useEditorStore((s) => s.document);
   const indentRow = useEditorStore((s) => s.indentRow);
 
-  const isEditing = focus.row === rowIndex && focus.col === colIndex && focus.editing;
+  const isEditing = !frozen && focus.row === rowIndex && focus.col === colIndex && focus.editing;
   const isFocused = focus.row === rowIndex && focus.col === colIndex;
   // 聚焦的单元格始终挂载 CellEditor，确保 contenteditable 存在以支持 IME
-  const showEditor = isFocused;
+  const showEditor = shouldShowCellEditor(cell, isFocused, isEditing, frozen);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -45,6 +48,16 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
       return;
     }
 
+    if (isCellImageInteractionTarget(e.target)) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (currentFocus.row !== rowIndex || currentFocus.col !== colIndex) {
+        commitActiveCellEditor({ keepEditing: true, force: true });
+      }
+      sf({ row: rowIndex, col: colIndex, editing: false });
+      return;
+    }
+
     // Browse-mode cell selection should not start native text selection.
     e.preventDefault();
     // 当前聚焦格可能在浏览态接收了 IME 输入，切格前统一尝试提交。
@@ -56,8 +69,9 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
   }, [rowIndex, colIndex]);
 
   const handleDoubleClick = useCallback(() => {
+    if (frozen) return;
     setFocus({ row: rowIndex, col: colIndex, editing: true });
-  }, [rowIndex, colIndex, setFocus]);
+  }, [frozen, rowIndex, colIndex, setFocus]);
 
   const handleClick = useCallback(() => {
     const { focus: currentFocus } = useEditorStore.getState();
@@ -74,12 +88,14 @@ export default function Cell({ cell, rowIndex, colIndex }: CellProps) {
 
   const handleCommit = useCallback(
     (newCell: TabMLCell, options?: { keepEditing?: boolean }) => {
-      updateCell(rowIndex, colIndex, newCell);
+      if (!frozen) {
+        updateCell(rowIndex, colIndex, newCell);
+      }
       if (!options?.keepEditing) {
         setFocus({ row: rowIndex, col: colIndex, editing: false });
       }
     },
-    [rowIndex, colIndex, updateCell, setFocus]
+    [frozen, rowIndex, colIndex, updateCell, setFocus]
   );
 
   const handleCancel = useCallback(() => {
