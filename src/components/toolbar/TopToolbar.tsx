@@ -37,18 +37,14 @@ function ToolbarButton({
 }
 
 export default function TopToolbar() {
-  const viewMode = useEditorStore((s) => s.viewMode);
   const focus = useEditorStore((s) => s.focus);
   const document = useEditorStore((s) => s.document);
   const updateCell = useEditorStore((s) => s.updateCell);
   const toggleGridLines = useEditorStore((s) => s.toggleGridLines);
   const showGridLines = useEditorStore((s) => s.showGridLines);
-  const sourceText = useEditorStore((s) => s.sourceText);
   const applyFormat = useEditorStore((s) => s.applyFormat);
   const fontSize = useEditorStore((s) => s.fontSize);
   const setFontSize = useEditorStore((s) => s.setFontSize);
-
-  if (viewMode !== 'wysiwyg') return null;
 
   const currentRow = document.rows[focus.row];
   const currentCell = currentRow?.cells[focus.col];
@@ -68,14 +64,6 @@ export default function TopToolbar() {
   const handleFormat = (format: FormatType) => {
     if (!focus.editing) {
       applyFormat(format);
-    }
-  };
-
-  const copySource = async () => {
-    try {
-      await navigator.clipboard.writeText(sourceText);
-    } catch {
-      // Clipboard access can be unavailable in some shells.
     }
   };
 
@@ -183,9 +171,6 @@ export default function TopToolbar() {
           onClick={toggleGridLines}
         >
           #
-        </ToolbarButton>
-        <ToolbarButton label="源码" title="复制源码" onClick={copySource}>
-          ⧉
         </ToolbarButton>
       </div>
 

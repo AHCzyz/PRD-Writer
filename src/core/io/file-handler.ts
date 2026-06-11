@@ -14,6 +14,19 @@ const FILE_TYPES = [
   },
 ];
 
+const EXCEL_FILE_TYPES = [
+  {
+    description: 'Excel 工作簿',
+    accept: {
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.ms-excel.sheet.macroEnabled.12': ['.xlsm'],
+      'application/vnd.ms-excel.sheet.binary.macroEnabled.12': ['.xlsb'],
+      'text/csv': ['.csv'],
+    },
+  },
+];
+
 /**
  * 打开文件对话框，读取 .tab.md 文件内容
  */
@@ -32,6 +45,25 @@ export async function openFile(): Promise<{ name: string; content: string } | nu
 
     // 降级到传统 input 方式
     return await openFileFallback();
+  } catch (err: any) {
+    if (err.name === 'AbortError') return null;
+    throw err;
+  }
+}
+
+export async function openExcelFile(): Promise<{ name: string; data: ArrayBuffer } | null> {
+  try {
+    if ('showOpenFilePicker' in window) {
+      const [handle] = await (window as any).showOpenFilePicker({
+        types: EXCEL_FILE_TYPES,
+        multiple: false,
+      });
+      const file = await handle.getFile();
+      const data = await file.arrayBuffer();
+      return { name: file.name, data };
+    }
+
+    return await openExcelFileFallback();
   } catch (err: any) {
     if (err.name === 'AbortError') return null;
     throw err;
@@ -82,6 +114,24 @@ function openFileFallback(): Promise<{ name: string; content: string } | null> {
       }
       const content = await file.text();
       resolve({ name: file.name, content });
+    };
+    input.click();
+  });
+}
+
+function openExcelFileFallback(): Promise<{ name: string; data: ArrayBuffer } | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.xlsx,.xls,.xlsm,.xlsb,.csv';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) {
+        resolve(null);
+        return;
+      }
+      const data = await file.arrayBuffer();
+      resolve({ name: file.name, data });
     };
     input.click();
   });

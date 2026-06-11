@@ -43,6 +43,14 @@ export interface GridClipboard {
   columnWidths?: number[];
 }
 
+export interface ImportedDocumentInput {
+  title: string;
+  document: TabMLDocument;
+  filePath?: string | null;
+  columnWidths?: number[];
+  isDirty?: boolean;
+}
+
 /** 标签页数据 */
 export interface Tab {
   id: string;
@@ -50,7 +58,6 @@ export interface Tab {
   filePath: string | null;
   document: TabMLDocument;
   focus: CellFocus;
-  viewMode: 'wysiwyg' | 'source';
   columnWidths: number[];
   sourceText: string;
   showGridLines: boolean;
@@ -67,7 +74,6 @@ export interface EditorStore {
   // 顶层同步字段（从 activeTab 同步，保持下游组件零改动）
   document: TabMLDocument;
   focus: CellFocus;
-  viewMode: 'wysiwyg' | 'source';
   columnWidths: number[];
   sourceText: string;
   showGridLines: boolean;
@@ -85,6 +91,7 @@ export interface EditorStore {
   markTabDirty: (id: string, dirty: boolean) => void;
   /** 打开文件：若当前标签为空白未修改，替换；否则新建标签 */
   openFileOrReplace: (filePath: string, content: string) => void;
+  openImportedDocuments: (items: ImportedDocumentInput[]) => void;
 
   // 文档操作
   setDocument: (doc: TabMLDocument) => void;
@@ -126,11 +133,6 @@ export interface EditorStore {
   // 格式操作（非编辑态下应用到整个格子）
   applyFormat: (format: FormatType) => void;
 
-  // 视图模式
-  setViewMode: (mode: 'wysiwyg' | 'source') => void;
-  syncSourceText: () => void;
-  syncFromSource: (text: string) => void;
-
   // UI
   toggleGridLines: () => void;
 
@@ -154,7 +156,6 @@ function createEmptyTab(title = '未命名'): Tab {
     filePath: null,
     document: doc,
     focus: { row: 0, col: 0, editing: false },
-    viewMode: 'wysiwyg',
     columnWidths: Array.from({ length: DEFAULT_COL_COUNT }, () => DEFAULT_COLUMN_WIDTH),
     sourceText: serialize(doc),
     showGridLines: true,
@@ -191,7 +192,6 @@ function createTabFromContent(filePath: string, content: string): Tab {
     filePath,
     document: doc,
     focus: { row: 0, col: 0, editing: false },
-    viewMode: 'wysiwyg',
     columnWidths: widths,
     sourceText: serialize(doc),
     showGridLines: true,
@@ -202,6 +202,46 @@ function createTabFromContent(filePath: string, content: string): Tab {
 }
 
 /** 从 tabs + activeTabId 同步顶层字段 */
+function createTabFromDocument(input: ImportedDocumentInput, id = generateTabId()): Tab {
+  const doc = normalizeImportedDocument(input.document);
+  const columnWidths = normalizeImportedColumnWidths(doc, input.columnWidths);
+  doc.frontmatter = { ...doc.frontmatter, columnWidths };
+  const title = input.title || 'Imported';
+  return {
+    id,
+    title,
+    filePath: input.filePath ?? null,
+    document: doc,
+    focus: { row: 0, col: 0, editing: false },
+    columnWidths,
+    sourceText: serialize(doc),
+    showGridLines: true,
+    isDirty: input.isDirty ?? true,
+    fontSize: DEFAULT_FONT_SIZE,
+    selectionRange: null,
+  };
+}
+
+function normalizeImportedDocument(doc: TabMLDocument): TabMLDocument {
+  const rows = doc.rows.length > 0 ? doc.rows : [createEmptyRow(1)];
+  return {
+    ...doc,
+    frontmatter: { ...doc.frontmatter },
+    rows,
+  };
+}
+
+function normalizeImportedColumnWidths(
+  doc: TabMLDocument,
+  columnWidths?: number[]
+): number[] {
+  const maxCols = Math.max(1, ...doc.rows.map((row) => row.cells.length), columnWidths?.length ?? 0);
+  return Array.from({ length: maxCols }, (_, index) => {
+    const value = columnWidths?.[index];
+    return typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_COLUMN_WIDTH;
+  });
+}
+
 function syncFromActive(tabs: Tab[], activeTabId: string, extra: Partial<EditorStore> = {}): Partial<EditorStore> {
   const active = tabs.find((t) => t.id === activeTabId);
   if (!active) return extra;
@@ -210,7 +250,6 @@ function syncFromActive(tabs: Tab[], activeTabId: string, extra: Partial<EditorS
     activeTabId,
     document: active.document,
     focus: active.focus,
-    viewMode: active.viewMode,
     columnWidths: active.columnWidths,
     sourceText: active.sourceText,
     showGridLines: active.showGridLines,
@@ -236,7 +275,6 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
 
   document: initialTab.document,
   focus: initialTab.focus,
-  viewMode: initialTab.viewMode,
   columnWidths: initialTab.columnWidths,
   sourceText: initialTab.sourceText,
   showGridLines: initialTab.showGridLines,
@@ -327,6 +365,26 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const tab = createTabFromContent(filePath, content);
     const newTabs = [...tabs, tab];
     set(syncFromActive(newTabs, tab.id));
+  },
+
+  openImportedDocuments: (items) => {
+    if (items.length === 0) return;
+    const { tabs, activeTabId } = get();
+    const active = tabs.find((t) => t.id === activeTabId);
+    const importedTabs = items.map((item) => createTabFromDocument(item));
+
+    if (active && !active.isDirty && !active.filePath) {
+      const [first, ...rest] = importedTabs;
+      const replacement = { ...first, id: active.id };
+      const newTabs = tabs
+        .map((tab) => (tab.id === activeTabId ? replacement : tab))
+        .concat(rest);
+      set(syncFromActive(newTabs, replacement.id));
+      return;
+    }
+
+    const newTabs = [...tabs, ...importedTabs];
+    set(syncFromActive(newTabs, importedTabs[0].id));
   },
 
   // === 文档操作 ===
@@ -921,42 +979,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     }));
   },
 
-  // === 视图模式 ===
-
-  setViewMode: (mode) => {
-    const { tabs, activeTabId } = get();
-    const active = tabs.find((t) => t.id === activeTabId)!;
-    if (mode === 'source') {
-      set(updateActive(tabs, activeTabId, {
-        viewMode: 'source',
-        sourceText: serialize(active.document),
-      }));
-    } else {
-      set(updateActive(tabs, activeTabId, { viewMode: 'wysiwyg' }));
-    }
-  },
-
-  syncSourceText: () => {
-    const { tabs, activeTabId } = get();
-    const active = tabs.find((t) => t.id === activeTabId)!;
-    set(updateActive(tabs, activeTabId, { sourceText: serialize(active.document) }));
-  },
-
-  syncFromSource: (text) => {
-    try {
-      const doc = parse(text);
-      const widths = computeColumnWidths(doc);
-      const { tabs, activeTabId } = get();
-      set(updateActive(tabs, activeTabId, {
-        document: doc,
-        sourceText: text,
-        columnWidths: widths,
-        isDirty: true,
-      }));
-    } catch {
-      // 解析失败时不更新
-    }
-  },
+  // === UI ===
 
   toggleGridLines: () => {
     const { tabs, activeTabId } = get();
@@ -1030,8 +1053,9 @@ function computeColumnWidths(doc: TabMLDocument): number[] {
   );
   const widths: number[] = [];
   if (doc.frontmatter.columnWidths && Array.isArray(doc.frontmatter.columnWidths)) {
-    for (const w of doc.frontmatter.columnWidths as number[]) {
-      widths.push(typeof w === 'number' ? w : DEFAULT_COLUMN_WIDTH);
+    for (const w of doc.frontmatter.columnWidths) {
+      const width = typeof w === 'number' ? w : Number(w);
+      widths.push(Number.isFinite(width) ? width : DEFAULT_COLUMN_WIDTH);
     }
   }
   while (widths.length < maxCols) widths.push(DEFAULT_COLUMN_WIDTH);

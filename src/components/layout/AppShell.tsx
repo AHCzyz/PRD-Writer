@@ -4,18 +4,16 @@
 import { useEffect, useCallback, useRef, useState } from 'react';
 import Grid from '../grid/Grid';
 import TopToolbar from '../toolbar/TopToolbar';
-import ModeToggle from '../layout/ModeToggle';
 import TabBar from '../tabs/TabBar';
 import { useEditorStore, type Tab } from '../../store/editor-store';
-import SourceView from '../source/SourceView';
-import { openFile, saveFile } from '../../core/io/file-handler';
+import { openExcelFile, openFile, saveFile } from '../../core/io/file-handler';
 import { commitActiveCellEditor } from '../cell/CellEditor';
 
 export default function AppShell() {
-  const viewMode = useEditorStore((s) => s.viewMode);
   const focus = useEditorStore((s) => s.focus);
   const document = useEditorStore((s) => s.document);
   const openFileOrReplace = useEditorStore((s) => s.openFileOrReplace);
+  const openImportedDocuments = useEditorStore((s) => s.openImportedDocuments);
 
   const [autoSave, setAutoSave] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -38,7 +36,7 @@ export default function AppShell() {
 
     const defaultName = tab.filePath
       ? tab.filePath.split(/[/\\]/).pop() || 'document.prd'
-      : 'document.prd';
+      : `${sanitizeFileName(tab.title || 'document')}.prd`;
 
     if (api?.saveFile) {
       const filePath = await api.saveFile(tab.sourceText, defaultName);
@@ -142,6 +140,33 @@ export default function AppShell() {
     }
   };
 
+  const handleImportExcel = async () => {
+    const result = await openExcelFile();
+    if (!result) return;
+
+    try {
+      const { importExcelWorkbook } = await import('../../core/excel/importer');
+      const sheets = importExcelWorkbook(result.data);
+      if (sheets.length === 0) {
+        window.alert('未找到可导入的工作表');
+        return;
+      }
+
+      openImportedDocuments(
+        sheets.map((sheet) => ({
+          title: importedSheetTitle(result.name, sheet.name, sheets.length),
+          document: sheet.document,
+          columnWidths: sheet.columnWidths,
+          filePath: null,
+          isDirty: true,
+        }))
+      );
+    } catch (err) {
+      console.error('Failed to import Excel file:', err);
+      window.alert('Excel 导入失败，请确认文件未损坏');
+    }
+  };
+
   const currentRow = document.rows[focus.row];
   const indent = currentRow?.indent || 0;
 
@@ -150,8 +175,8 @@ export default function AppShell() {
       <header className="app-header">
         <div className="header-left">
           <h1 className="app-title">PRD Writer</h1>
-          <ModeToggle />
           <div className="file-actions">
+            <button className="toolbar-btn" onClick={() => void handleImportExcel()}>导入Excel</button>
             <button className="toolbar-btn" onClick={handleOpen}>打开</button>
             <button className="toolbar-btn" onClick={() => void handleSave()}>保存</button>
             <label className="auto-save-label">
@@ -168,12 +193,10 @@ export default function AppShell() {
       </header>
       <TabBar />
       <main className="app-main">
-        {viewMode === 'wysiwyg' ? <Grid /> : <SourceView />}
+        <Grid />
       </main>
       <footer className="app-statusbar">
-        <span className="status-item">
-          {viewMode === 'wysiwyg' ? '编辑模式' : '源码模式'}
-        </span>
+        <span className="status-item">编辑模式</span>
         <span className="status-divider" />
         <span className="status-item">
           行 {focus.row + 1} / 列 {focus.col + 1}
@@ -191,4 +214,14 @@ export default function AppShell() {
       </footer>
     </div>
   );
+}
+
+function importedSheetTitle(fileName: string, sheetName: string, sheetCount: number): string {
+  const base = fileName.replace(/\.[^.]+$/, '') || 'Excel';
+  return sheetCount > 1 ? `${base} - ${sheetName}` : base;
+}
+
+function sanitizeFileName(name: string): string {
+  const cleaned = name.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+  return cleaned || 'document';
 }
