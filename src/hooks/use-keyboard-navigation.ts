@@ -38,6 +38,7 @@ export function useKeyboardNavigation() {
       deleteRow,
       insertRowsAt,
       insertColumnsAt,
+      columnWidths,
     } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
@@ -62,7 +63,7 @@ export function useKeyboardNavigation() {
     if (!currentRow || currentRow.isEmpty) return;
 
     const totalCols = currentRow.cells.length;
-    const frozen = isCellFrozenByRowImage(currentRow, col);
+    const frozen = isCellFrozenByRowImage(currentRow, col, columnWidths);
 
     // 编辑模式下由 CellEditor 处理，这里只处理 Escape
     if (editing) {
@@ -249,7 +250,7 @@ export function useKeyboardNavigation() {
             const image = constrainImageDimensions(dimensions);
             const row = state.document.rows[f.row];
             const imageCol = getRowImageColumn(row);
-            const targetCol = isCellFrozenByRowImage(row, f.col) && imageCol >= 0 ? imageCol : f.col;
+            const targetCol = isCellFrozenByRowImage(row, f.col, state.columnWidths) && imageCol >= 0 ? imageCol : f.col;
             state.updateCell(f.row, targetCol, {
               content: [],
               image: {
@@ -277,7 +278,8 @@ export function useKeyboardNavigation() {
     const handleCompositionStart = () => {
       const { focus: f, setFocus: sf, pendingEditKey, clearPendingEditKey } = useEditorStore.getState();
       if (!f.editing) {
-        if (isCellFrozenByRowImage(useEditorStore.getState().document.rows[f.row], f.col)) {
+        const state = useEditorStore.getState();
+        if (isCellFrozenByRowImage(state.document.rows[f.row], f.col, state.columnWidths)) {
           return;
         }
         // keydown 尚未触发或已被跳过 → 直接进入编辑模式，不设置 pendingKey

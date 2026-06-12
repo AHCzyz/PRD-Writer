@@ -77,7 +77,7 @@ export default function GridRow({
       {row.cells.map((cell, colIdx) => {
         const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
         const isFocused = focus.row === rowIndex && focus.col === colIdx;
-        const frozen = isCellFrozenByRowImage(row, colIdx);
+        const frozen = isCellFrozenByRowImage(row, colIdx, columnWidths);
         return (
           <td
             key={colIdx}
@@ -100,7 +100,7 @@ export default function GridRow({
           const colIdx = row.cells.length + i;
           const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
           const isFocused = focus.row === rowIndex && focus.col === colIdx;
-          const frozen = isCellFrozenByRowImage(row, colIdx);
+          const frozen = isCellFrozenByRowImage(row, colIdx, columnWidths);
           return (
             <td
               key={`empty-${colIdx}`}
