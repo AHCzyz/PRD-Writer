@@ -27,7 +27,7 @@ export function renderCellHTML(cell: TabMLCell): string {
   }
 
   // 图片
-  if (cell.image && cell.content.length === 0) {
+  if (cell.image && hasOnlyEmptyText(cell.content)) {
     const w = cell.image.width ? ` width="${cell.image.width}"` : '';
     const h = cell.image.height ? ` height="${cell.image.height}"` : '';
     parts.push(`<img src="${escapeHtml(cell.image.src)}"${w}${h} class="cell-image" />`);
@@ -42,6 +42,11 @@ export function renderCellHTML(cell: TabMLCell): string {
 
   if (cell.heading) parts.push('</span>');
   return parts.join('');
+}
+
+function hasOnlyEmptyText(content: InlineContent[]): boolean {
+  if (content.length === 0) return true;
+  return content.every((item) => item.type === 'text' && item.text.length === 0);
 }
 
 /**

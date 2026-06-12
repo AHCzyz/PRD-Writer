@@ -142,6 +142,64 @@ export interface EditorStore {
 
 export type FormatType = 'bold' | 'strikethrough' | 'warning' | 'modified' | `color-${'red' | 'green' | 'blue' | 'gray'}`;
 
+interface RowImageCoverage {
+  imageCol: number;
+  endCol: number;
+}
+
+export function isCellFrozenByRowImage(
+  row: TabMLRow | undefined,
+  col: number,
+  columnWidths: number[] = []
+): boolean {
+  const coverage = getRowImageCoverage(row, columnWidths);
+  return !!coverage && col !== coverage.imageCol && col >= coverage.imageCol && col <= coverage.endCol;
+}
+
+export function getRowImageColumn(row: TabMLRow | undefined): number {
+  if (!row || row.isEmpty) return -1;
+  return row.cells.findIndex((cell) => hasCellImage(cell));
+}
+
+function rowImageCoverageContainsColumn(
+  row: TabMLRow | undefined,
+  col: number,
+  columnWidths: number[] = []
+): boolean {
+  const coverage = getRowImageCoverage(row, columnWidths);
+  return !!coverage && col >= coverage.imageCol && col <= coverage.endCol;
+}
+
+function rowImageCoverageIntersectsRange(
+  row: TabMLRow | undefined,
+  minCol: number,
+  maxCol: number,
+  columnWidths: number[] = []
+): boolean {
+  const coverage = getRowImageCoverage(row, columnWidths);
+  return !!coverage && minCol <= coverage.endCol && maxCol >= coverage.imageCol;
+}
+
+function getRowImageCoverage(
+  row: TabMLRow | undefined,
+  columnWidths: number[] = []
+): RowImageCoverage | null {
+  if (!row || row.isEmpty) return null;
+  const imageCol = getRowImageColumn(row);
+  if (imageCol < 0) return null;
+
+  const imageWidth = getCellImageWidth(row.cells[imageCol]);
+  let coveredWidth = 0;
+  let endCol = imageCol;
+  while (coveredWidth < imageWidth) {
+    coveredWidth += getColumnWidth(columnWidths, endCol);
+    if (coveredWidth >= imageWidth) break;
+    endCol++;
+  }
+
+  return { imageCol, endCol };
+}
+
 let tabCounter = 0;
 function generateTabId(): string {
   tabCounter++;
@@ -423,6 +481,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
   updateCell: (row, col, cell) => {
     const { tabs, activeTabId } = get();
     const active = tabs.find((t) => t.id === activeTabId)!;
+    if (isCellFrozenByRowImage(active.document.rows[row], col, active.columnWidths)) return;
     const doc = { ...active.document };
     const rows = [...doc.rows];
     const targetRow = { ...rows[row] };
@@ -453,6 +512,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       ensureCells(cells, range.maxCol + 1);
 
       for (let c = range.minCol; c <= range.maxCol; c++) {
+        if (isCellFrozenByRowImage(row, c, active.columnWidths)) continue;
         if (!isEmptyCell(cells[c])) {
           cells[c] = createEmptyCell();
           changed = true;
@@ -501,6 +561,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       const deleteCount = range.maxCol - range.minCol + 1;
       const rows = active.document.rows.map((row) => {
         if (row.isEmpty) return row;
+        if (rowImageCoverageIntersectsRange(row, range.minCol, range.maxCol, active.columnWidths)) return row;
         const cells = [...row.cells];
         ensureCells(cells, range.maxCol + 1);
         cells.splice(range.minCol, deleteCount);
@@ -612,6 +673,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       }
       rows = rows.map((rowItem, rowIndex) => {
         if (rowItem.isEmpty) return rowItem;
+        if (rowImageCoverageContainsColumn(rowItem, targetCol, active.columnWidths)) return rowItem;
         const cells = [...rowItem.cells];
         ensureCells(cells, targetCol);
         const sourceCells = clipboard.cells[rowIndex] || Array.from({ length: width }, () => createEmptyCell());
@@ -640,6 +702,32 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const width = Math.max(...clipboard.cells.map((rowCells) => rowCells.length), 0);
     if (height === 0 || width === 0) return;
 
+    const existingTargetRow = rows[targetRow];
+    if (rowImageCoverageContainsColumn(existingTargetRow, targetCol, active.columnWidths)) {
+      const imageCol = getRowImageColumn(existingTargetRow);
+      if (targetCol !== imageCol) return;
+
+      const replacement = clipboard.cells[0]?.[0];
+      if (!replacement) return;
+
+      const cells = [...existingTargetRow.cells];
+      ensureCells(cells, imageCol + 1);
+      cells[imageCol] = cloneCell(replacement);
+      rows[targetRow] = { ...existingTargetRow, isEmpty: false, cells };
+      doc.rows = rows;
+      const maxCols = Math.max(...rows.map((r) => r.cells.length), columnWidths.length, DEFAULT_COL_COUNT);
+      ensureWidths(columnWidths, maxCols);
+      const nextDoc = withColumnWidths(doc, columnWidths);
+      set(updateActive(tabs, activeTabId, {
+        document: nextDoc,
+        columnWidths,
+        focus: { row: targetRow, col: imageCol, editing: false },
+        sourceText: serialize(nextDoc),
+        isDirty: true,
+      }));
+      return;
+    }
+
     const baseCols = Math.max(getMaxColumnCount(doc), columnWidths.length, DEFAULT_COL_COUNT);
     while (rows.length <= targetRow) {
       rows.push(createEmptyRow(baseCols));
@@ -655,6 +743,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     for (let i = 0; i < height; i++) {
       const rowIndex = targetRow + i;
       const rowItem = rows[rowIndex] || createEmptyRow(baseCols);
+      if (isCellFrozenByRowImage(rowItem, targetCol, active.columnWidths)) continue;
       const cells = [...rowItem.cells];
       ensureCells(cells, targetCol);
       cells.splice(targetCol, 0, ...clipboard.cells[i].map(cloneCell));
@@ -762,6 +851,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const doc = { ...active.document };
     const rows = [...doc.rows];
     const row = { ...rows[rowIndex] };
+    if (rowImageCoverageContainsColumn(row, row.cells.length, active.columnWidths)) return;
     row.cells = [...row.cells, createEmptyCell()];
     rows[rowIndex] = row;
     doc.rows = rows;
@@ -784,6 +874,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const doc = { ...active.document };
     const rows = active.document.rows.map((row) => {
       if (row.isEmpty) return row;
+      if (rowImageCoverageContainsColumn(row, index, active.columnWidths)) return row;
       const cells = [...row.cells];
       const insertAt = clamp(index, 0, cells.length);
       ensureCells(cells, insertAt);
@@ -825,6 +916,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
     const doc = { ...active.document };
     const rows = [...doc.rows];
     const row = { ...rows[rowIndex] };
+    if (rowImageCoverageIntersectsRange(row, row.cells.length, Math.max(row.cells.length, minCols - 1), active.columnWidths)) return;
     if (row.cells.length >= minCols) return;
     row.cells = [
       ...row.cells,
@@ -955,6 +1047,7 @@ export const useEditorStore = create<EditorStore>((set, get) => ({
       let nextCells: TabMLCell[] | null = null;
 
       for (let c = minC; c <= maxC; c++) {
+        if (isCellFrozenByRowImage(row, c, active.columnWidths)) continue;
         const cell = row.cells[c];
         if (!cell || !getCellText(cell)) continue;
 
@@ -1160,6 +1253,28 @@ function isEmptyCell(cell: TabMLCell | undefined): boolean {
     if (item.type === 'image') return false;
     return item.text.length === 0 && (!item.marks || item.marks.length === 0);
   });
+}
+
+function hasCellImage(cell: TabMLCell | undefined): boolean {
+  if (!cell) return false;
+  if (cell.image) return true;
+  return cell.content.some((item) => item.type === 'image');
+}
+
+function getCellImageWidth(cell: TabMLCell | undefined): number {
+  if (!cell) return DEFAULT_COLUMN_WIDTH;
+  const image = cell.image || cell.content.find((item) => item.type === 'image');
+  const width = image?.width;
+  return typeof width === 'number' && Number.isFinite(width) && width > 0
+    ? width
+    : DEFAULT_COLUMN_WIDTH;
+}
+
+function getColumnWidth(columnWidths: number[], col: number): number {
+  const width = columnWidths[col];
+  return typeof width === 'number' && Number.isFinite(width) && width > 0
+    ? width
+    : DEFAULT_COLUMN_WIDTH;
 }
 
 function withColumnWidths(doc: TabMLDocument, columnWidths: number[]): TabMLDocument {

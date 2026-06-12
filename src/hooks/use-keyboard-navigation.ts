@@ -5,9 +5,15 @@
  * Enter = 换行到下一行（始终，非编辑模式）
  */
 import { useCallback, useEffect } from 'react';
-import { useEditorStore } from '../store/editor-store';
+import { getRowImageColumn, isCellFrozenByRowImage, useEditorStore } from '../store/editor-store';
 import { commitActiveCellEditor, hasActiveCellEditorChanges } from '../components/cell/CellEditor';
 import { GRID_EXPAND_BATCH } from '../constants/format';
+import {
+  constrainImageDimensions,
+  getImageDimensions,
+  getImageFromClipboard,
+  hasImageInClipboard,
+} from '../core/image/image-handler';
 
 export function useKeyboardNavigation() {
   const indentRow = useEditorStore((s) => s.indentRow);
@@ -29,10 +35,10 @@ export function useKeyboardNavigation() {
       clearSelectionContent,
       copySelection,
       cutSelection,
-      pasteClipboard,
       deleteRow,
       insertRowsAt,
       insertColumnsAt,
+      columnWidths,
     } = useEditorStore.getState();
     const { row, col, editing } = focus;
     const rows = document.rows;
@@ -57,6 +63,7 @@ export function useKeyboardNavigation() {
     if (!currentRow || currentRow.isEmpty) return;
 
     const totalCols = currentRow.cells.length;
+    const frozen = isCellFrozenByRowImage(currentRow, col, columnWidths);
 
     // 编辑模式下由 CellEditor 处理，这里只处理 Escape
     if (editing) {
@@ -80,8 +87,6 @@ export function useKeyboardNavigation() {
     }
 
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'v') {
-      e.preventDefault();
-      pasteClipboard();
       return;
     }
 
@@ -199,6 +204,7 @@ export function useKeyboardNavigation() {
 
       case 'F2': {
         // F2 = 进入编辑模式（保留原有内容）
+        if (frozen) break;
         e.preventDefault();
         setFocus({ row, col, editing: true });
         break;
@@ -208,6 +214,10 @@ export function useKeyboardNavigation() {
         // 选中即可输入：可打印字符 → 进入编辑模式，替换内容
         // IME 输入时不拦截，让 Tiptap 自然处理
         if (isPrintableKey(e)) {
+          if (frozen) {
+            e.preventDefault();
+            return;
+          }
           if (hasActiveCellEditorChanges()) {
             setFocus({ row, col, editing: true });
             return;
@@ -226,12 +236,52 @@ export function useKeyboardNavigation() {
     if (!el) return;
     el.addEventListener('keydown', handleKeyDown as EventListener);
 
+    const handlePaste = (event: ClipboardEvent) => {
+      const state = useEditorStore.getState();
+      const { focus: f, clipboard } = state;
+      if (f.editing) return;
+
+      if (hasImageInClipboard(event)) {
+        event.preventDefault();
+        event.stopPropagation();
+        getImageFromClipboard(event).then((dataUrl) => {
+          if (!dataUrl) return;
+          getImageDimensions(dataUrl).then((dimensions) => {
+            const image = constrainImageDimensions(dimensions);
+            const row = state.document.rows[f.row];
+            const imageCol = getRowImageColumn(row);
+            const targetCol = isCellFrozenByRowImage(row, f.col, state.columnWidths) && imageCol >= 0 ? imageCol : f.col;
+            state.updateCell(f.row, targetCol, {
+              content: [],
+              image: {
+                src: dataUrl,
+                ...image,
+              },
+            });
+            state.setFocus({ row: f.row, col: targetCol, editing: false });
+          });
+        });
+        return;
+      }
+
+      if (clipboard) {
+        event.preventDefault();
+        event.stopPropagation();
+        state.pasteClipboard();
+      }
+    };
+    el.addEventListener('paste', handlePaste as EventListener, true);
+
     // IME 输入开始（拼音、日文等）
     // 如果当前不在编辑模式 → 进入编辑模式但不注入 key
     // 如果已在编辑模式（keydown 先于 compositionstart）→ 清除误插的英文字母
     const handleCompositionStart = () => {
       const { focus: f, setFocus: sf, pendingEditKey, clearPendingEditKey } = useEditorStore.getState();
       if (!f.editing) {
+        const state = useEditorStore.getState();
+        if (isCellFrozenByRowImage(state.document.rows[f.row], f.col, state.columnWidths)) {
+          return;
+        }
         // keydown 尚未触发或已被跳过 → 直接进入编辑模式，不设置 pendingKey
         // 后续 IME 组合键将自然流入 CellEditor
         sf({ row: f.row, col: f.col, editing: true });
@@ -261,6 +311,7 @@ export function useKeyboardNavigation() {
 
     return () => {
       el.removeEventListener('keydown', handleKeyDown as EventListener);
+      el.removeEventListener('paste', handlePaste as EventListener, true);
       el.removeEventListener('compositionstart', handleCompositionStart);
     };
   }, [handleKeyDown]);

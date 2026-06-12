@@ -2,7 +2,7 @@
  * 单行渲染 — 行号头 + 数据格子 + 选区高亮
  */
 import type { TabMLRow } from '../../types/tabml';
-import { useEditorStore } from '../../store/editor-store';
+import { isCellFrozenByRowImage, useEditorStore } from '../../store/editor-store';
 import Cell from '../cell/Cell';
 import { INDENT_WIDTH } from '../../constants/format';
 import { createEmptyCell } from '../../types/tabml';
@@ -53,7 +53,7 @@ export default function GridRow({
             onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
             onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
           >
-            <Cell cell={createEmptyCell()} rowIndex={rowIndex} colIndex={colIdx} />
+            <Cell cell={createEmptyCell()} rowIndex={rowIndex} colIndex={colIdx} frozen={false} />
           </td>
         ))}
       </tr>
@@ -77,10 +77,11 @@ export default function GridRow({
       {row.cells.map((cell, colIdx) => {
         const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
         const isFocused = focus.row === rowIndex && focus.col === colIdx;
+        const frozen = isCellFrozenByRowImage(row, colIdx, columnWidths);
         return (
           <td
             key={colIdx}
-            className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+            className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''} ${frozen ? 'cell-frozen' : ''}`}
             data-row={rowIndex}
             data-col={colIdx}
             style={{
@@ -89,7 +90,7 @@ export default function GridRow({
             onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
             onMouseEnter={() => onCellMouseEnter(rowIndex, colIdx)}
           >
-            <Cell cell={cell} rowIndex={rowIndex} colIndex={colIdx} />
+            <Cell cell={cell} rowIndex={rowIndex} colIndex={colIdx} frozen={frozen} />
           </td>
         );
       })}
@@ -99,10 +100,11 @@ export default function GridRow({
           const colIdx = row.cells.length + i;
           const isSelected = selectAll || isCellSelected(rowIndex, colIdx);
           const isFocused = focus.row === rowIndex && focus.col === colIdx;
+          const frozen = isCellFrozenByRowImage(row, colIdx, columnWidths);
           return (
             <td
               key={`empty-${colIdx}`}
-              className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''}`}
+              className={`grid-cell ${isFocused ? 'cell-focused' : ''} ${isSelected ? 'cell-selected' : ''} ${frozen ? 'cell-frozen' : ''}`}
               data-row={rowIndex}
               data-col={colIdx}
               onMouseDown={(e) => onCellMouseDown(rowIndex, colIdx, e)}
@@ -112,6 +114,7 @@ export default function GridRow({
                 cell={createEmptyCell()}
                 rowIndex={rowIndex}
                 colIndex={colIdx}
+                frozen={frozen}
               />
             </td>
           );

@@ -20,8 +20,10 @@ export function markupToTiptapHTML(cell: TabMLCell): string {
   else if (cell.heading === 2) parts.push('<span data-heading-level="2" class="heading-prefix heading-h2">## </span>');
   else if (cell.heading === 3) parts.push('<span data-heading-level="3" class="heading-prefix heading-h3">### </span>');
 
+  const content = contentWithoutDuplicateExclusiveImage(cell);
+
   // 内联内容
-  for (const item of cell.content) {
+  for (const item of content) {
     parts.push(renderInlineToHTML(item));
   }
 
@@ -39,6 +41,18 @@ function renderInlineToHTML(item: InlineContent): string {
     return `<img ${renderImageAttrs(item.src, item.width, item.height)} />`;
   }
   return renderTextRunToHTML(item);
+}
+
+function contentWithoutDuplicateExclusiveImage(cell: TabMLCell): InlineContent[] {
+  if (!cell.image) return cell.content;
+  return cell.content.filter((item) => {
+    if (item.type !== 'image') return true;
+    return !(
+      item.src === cell.image?.src &&
+      item.width === cell.image?.width &&
+      item.height === cell.image?.height
+    );
+  });
 }
 
 function renderImageAttrs(src: string, width?: number, height?: number): string {

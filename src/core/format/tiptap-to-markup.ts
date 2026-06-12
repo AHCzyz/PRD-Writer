@@ -45,7 +45,7 @@ export function tiptapToCell(json: JSONContent, originalCell: TabMLCell): TabMLC
     cell.content = [{ type: 'text', text: '' }];
   }
 
-  return cell;
+  return normalizeImageCell(cell);
 }
 
 /**
@@ -85,6 +85,50 @@ function nodeToInlineContent(node: JSONContent): InlineContent[] {
   }
 
   return [];
+}
+
+function normalizeImageCell(cell: TabMLCell): TabMLCell {
+  const meaningfulContent = cell.content.filter((item) => {
+    if (item.type === 'text') return item.text.length > 0;
+    return true;
+  });
+  if (meaningfulContent.length === 0) return cell;
+
+  const imageItems = meaningfulContent.filter((item) => item.type === 'image');
+  if (imageItems.length !== meaningfulContent.length) {
+    if (cell.image) {
+      const { image: _image, ...rest } = cell;
+      return rest;
+    }
+    return cell;
+  }
+
+  const [first] = imageItems;
+  if (!first || first.type !== 'image') return cell;
+  const allSame = imageItems.every(
+    (item) =>
+      item.type === 'image' &&
+      item.src === first.src &&
+      item.width === first.width &&
+      item.height === first.height
+  );
+  if (!allSame) {
+    if (cell.image) {
+      const { image: _image, ...rest } = cell;
+      return rest;
+    }
+    return cell;
+  }
+
+  return {
+    ...cell,
+    content: [],
+    image: {
+      src: first.src,
+      width: first.width,
+      height: first.height,
+    },
+  };
 }
 
 /**

@@ -20,4 +20,17 @@ describe('cell layout CSS', () => {
     expect(renderer).toContain('white-space: pre;');
     expect(editor).toContain('white-space: pre;');
   });
+
+  it('lets pasted images float over the grid without being squeezed by the source cell width', () => {
+    const cellImage = cssBlock('.cell-image');
+    const editorImage = cssBlock('.cell-editor-content .ProseMirror img');
+    const tabmlImage = cssBlock('.tabml-image');
+
+    expect(cellImage).toContain('position: absolute;');
+    expect(cellImage).toContain('max-width: none;');
+    expect(cellImage).toContain('height: auto;');
+    expect(cellImage).not.toContain('max-width: 100%');
+    expect(editorImage).toContain('max-width: none;');
+    expect(tabmlImage).toContain('max-width: none;');
+  });
 });
